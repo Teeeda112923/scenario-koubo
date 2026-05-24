@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#0a0a0f"/>
+  <!-- クラッパーボード本体 -->
+  <rect x="96" y="180" width="320" height="220" rx="16" fill="#1f2937" stroke="#374151" stroke-width="6"/>
+  <!-- クラッパー上部（ストライプ） -->
+  <rect x="96" y="140" width="320" height="52" rx="12" fill="#292524"/>
+  <!-- ストライプ -->
+  <rect x="96" y="140" width="56" height="52" fill="#d97706"/>
+  <rect x="208" y="140" width="56" height="52" fill="#d97706"/>
+  <rect x="320" y="140" width="56" height="52" fill="#d97706"/>
+  <!-- クラッパー上部のボーダー -->
+  <rect x="96" y="140" width="320" height="52" rx="12" fill="none" stroke="#374151" stroke-width="6"/>
+  <!-- ヒンジ -->
+  <circle cx="130" cy="152" r="14" fill="#374151"/>
+  <circle cx="130" cy="152" r="8" fill="#d97706"/>
+  <!-- テキスト行 -->
+  <rect x="128" y="212" width="120" height="10" rx="5" fill="#374151"/>
+  <rect x="128" y="238" width="80" height="10" rx="5" fill="#374151"/>
+  <rect x="128" y="264" width="100" height="10" rx="5" fill="#374151"/>
+  <!-- 再生ボタン -->
+  <circle cx="340" cy="280" r="52" fill="#d97706" opacity="0.15"/>
+  <polygon points="325,258 325,302 367,280" fill="#d97706"/>
+</svg>

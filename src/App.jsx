@@ -1,0 +1,1520 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+
+// ─── ユーティリティ ───────────────────────────────────────
+const genId = () => Math.random().toString(36).slice(2, 9);
+const STORAGE_KEY = "scenario_koubo_v1";
+const load = () => {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || { projects: [] }; }
+  catch { return { projects: [] }; }
+};
+const save = (d) => localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+
+// ─── 初期データファクトリ ─────────────────────────────────
+const createProject = (title = "新しい作品") => ({
+  id: genId(), title, genre: "", status: "企画中",
+  createdAt: new Date().toISOString(),
+  tenchiJin: { ten: "", chi: "", jin: "" },
+  characters: [],
+  structure: { mode: "起承転結", ki: "", sho: "", ten_: "", ketsu: "", act1: "", act2a: "", midpoint: "", act2b: "", act3: "" },
+  hakogaki: {
+    useEpisode: false,
+    useEmotionCurve: false,
+    acts: [
+      { id: genId(), name: "第一幕", episodes: [], scenes: [] },
+      { id: genId(), name: "第二幕", episodes: [], scenes: [] },
+      { id: genId(), name: "第三幕", episodes: [], scenes: [] },
+    ]
+  },
+  notes: [],
+  sketches: [],
+});
+const createCharacter = () => ({ id: genId(), name: "", age: "", role: "主要", appearance: "", personality: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "" });
+const createScene    = () => ({ id: genId(), location: "", time: "昼", characters: "", content: "", purpose: "", type: "daily", emotion: 0, drawingDataUrl: null });
+const createSketch   = (title = "") => ({ id: genId(), title, drawingDataUrl: null, createdAt: new Date().toISOString() });
+const createEpisode = (n = 1) => ({ id: genId(), name: `エピソード${n}`, scenes: [] });
+
+// ─── スタイル定数 ─────────────────────────────────────────
+const cx = {
+  page:    "min-h-screen bg-gray-950 text-gray-100",
+  card:    "bg-gray-900 border border-gray-800 rounded-lg p-4",
+  btn:     "px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer",
+  pri:     "bg-amber-600 hover:bg-amber-500 text-black",
+  ghost:   "border border-gray-700 hover:border-gray-500 text-gray-300 hover:text-white bg-transparent",
+  danger:  "text-red-400 hover:text-red-300 hover:bg-red-900/20 bg-transparent border-0",
+  input:   "w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-amber-600",
+  ta:      "w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-amber-600 resize-none",
+  lbl:     "block text-xs text-gray-400 mb-1 uppercase tracking-wider",
+  tab:     "px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer",
+  tabOn:   "border-amber-500 text-amber-400",
+  tabOff:  "border-transparent text-gray-500 hover:text-gray-300",
+  badge:   "px-2 py-0.5 rounded-full text-xs",
+};
+
+const STATUS_COLOR = {
+  "企画中": "bg-blue-900/50 text-blue-300",
+  "執筆中": "bg-amber-900/50 text-amber-300",
+  "完成":   "bg-green-900/50 text-green-300",
+};
+
+const SCENE_TYPE = {
+  daily:      { label: "日常",           dot: "bg-gray-500" },
+  conflict:   { label: "対立",           dot: "bg-red-500" },
+  turning:    { label: "転換",           dot: "bg-purple-500" },
+  climax:     { label: "クライマックス", dot: "bg-orange-500" },
+  resolution: { label: "解決",           dot: "bg-green-500" },
+};
+
+// ═══════════════════════════════════════════════════════════
+// HOME
+// ═══════════════════════════════════════════════════════════
+function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isReady, onManualFetch, onOpenSetting }) {
+  const [newTitle, setNewTitle] = useState("");
+  const fileRef = useRef();
+
+  const addProject = () => {
+    const p = createProject(newTitle.trim() || "新しい作品");
+    setData(d => ({ ...d, projects: [...d.projects, p] }));
+    setNewTitle("");
+    onOpen(p.id);
+  };
+
+  const delProject = (id) => {
+    if (!confirm("この作品を削除しますか？")) return;
+    setData(d => ({ ...d, projects: d.projects.filter(p => p.id !== id) }));
+  };
+
+  const exportAll = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "scenario_koubo_backup.json" });
+    a.click();
+  };
+
+  const importData = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const imp = JSON.parse(ev.target.result);
+        if (imp.projects) setData(imp);
+        else alert("形式が正しくありません");
+      } catch { alert("読み込みに失敗しました"); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div className={cx.page}>
+      {/* ヘッダー */}
+      <div className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-amber-400 tracking-widest">🎬 シナリオ工房</h1>
+          <p className="text-xs text-gray-500 mt-0.5">映画・ドラマ脚本制作ツール</p>
+        </div>
+        <div className="flex gap-2 items-center">
+          <SyncBadge syncState={syncState} syncMsg={syncMsg} isReady={isReady}
+            onManualFetch={onManualFetch} onOpenSetting={onOpenSetting} />
+          <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={importData} />
+          <button className={`${cx.btn} ${cx.ghost}`} onClick={() => fileRef.current.click()}>📥 インポート</button>
+          <button className={`${cx.btn} ${cx.ghost}`} onClick={exportAll}>📤 エクスポート</button>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-2xl mx-auto">
+        {/* 新規作成 */}
+        <div className="flex gap-2 mb-6">
+          <input className={`${cx.input} flex-1`} placeholder="作品タイトルを入力..."
+            value={newTitle} onChange={e => setNewTitle(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addProject()} />
+          <button className={`${cx.btn} ${cx.pri} whitespace-nowrap`} onClick={addProject}>＋ 新規作成</button>
+        </div>
+
+        {/* 一覧 */}
+        {data.projects.length === 0 ? (
+          <div className="text-center py-20 text-gray-600">
+            <div className="text-5xl mb-4">🎞</div>
+            <p className="text-sm">作品がありません。新しいプロジェクトを作成してください。</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {data.projects.map(p => (
+              <div key={p.id} className={`${cx.card} flex items-center gap-3 cursor-pointer hover:border-gray-600 transition-colors`}
+                onClick={() => onOpen(p.id)}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-white truncate">{p.title || "無題"}</span>
+                    <span className={`${cx.badge} ${STATUS_COLOR[p.status]}`}>{p.status}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 flex gap-3 flex-wrap">
+                    {p.genre && <span>🎭 {p.genre}</span>}
+                    <span>👥 登場人物 {p.characters.length}人</span>
+                    <span>📦 幕 {p.hakogaki.acts.length}</span>
+                    <span>{new Date(p.createdAt).toLocaleDateString("ja-JP")}</span>
+                  </div>
+                </div>
+                <button className={`${cx.btn} ${cx.danger} flex-shrink-0 text-xs`}
+                  onClick={e => { e.stopPropagation(); delProject(p.id); }}>削除</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// PROJECT (タブ親)
+// ═══════════════════════════════════════════════════════════
+const TABS = (useEmotionCurve) => [
+  { id: "tenchiJin",    label: "☰ 天地人" },
+  { id: "characters",   label: "👥 登場人物" },
+  { id: "structure",    label: "📐 起承転結" },
+  { id: "hakogaki",     label: "📦 箱書き" },
+  ...(useEmotionCurve ? [{ id: "emotionCurve", label: "〰 感情曲線" }] : []),
+  { id: "notes",        label: "📝 設定メモ" },
+  { id: "sketches",     label: "✏ スケッチ" },
+];
+
+function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, isReady, onManualFetch, onOpenSetting }) {
+  return (
+    <div className={cx.page}>
+      {/* ヘッダー */}
+      <div className="border-b border-gray-800 px-4 py-3 flex items-center gap-3">
+        <button className={`${cx.btn} ${cx.ghost} text-xs`} onClick={onBack}>← 一覧</button>
+        <input className="bg-transparent font-bold text-white text-lg focus:outline-none flex-1 min-w-0"
+          value={project.title} onChange={e => updateProject(p => ({ ...p, title: e.target.value }))}
+          placeholder="作品タイトル" />
+        <input className="bg-transparent text-sm text-gray-400 focus:outline-none w-28 hidden sm:block"
+          value={project.genre} onChange={e => updateProject(p => ({ ...p, genre: e.target.value }))}
+          placeholder="ジャンル" />
+        <select className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300"
+          value={project.status} onChange={e => updateProject(p => ({ ...p, status: e.target.value }))}>
+          {Object.keys(STATUS_COLOR).map(s => <option key={s}>{s}</option>)}
+        </select>
+        <SyncBadge syncState={syncState} syncMsg={syncMsg} isReady={isReady}
+          onManualFetch={onManualFetch} onOpenSetting={onOpenSetting} />
+      </div>
+      {/* タブ */}
+      <div className="border-b border-gray-800 px-3 flex overflow-x-auto">
+        {TABS(project.hakogaki.useEmotionCurve).map(t => (
+          <button key={t.id} className={`${cx.tab} ${activeTab === t.id ? cx.tabOn : cx.tabOff}`}
+            onClick={() => setActiveTab(t.id)}>{t.label}</button>
+        ))}
+      </div>
+      {/* コンテンツ */}
+      <div className="p-4 overflow-y-auto" style={{ height: "calc(100vh - 108px)" }}>
+        {activeTab === "tenchiJin"    && <TenchiJin    project={project} updateProject={updateProject} />}
+        {activeTab === "characters"   && <Characters   project={project} updateProject={updateProject} />}
+        {activeTab === "structure"    && <Structure    project={project} updateProject={updateProject} />}
+        {activeTab === "hakogaki"     && <Hakogaki     project={project} updateProject={updateProject} />}
+        {activeTab === "emotionCurve" && <EmotionCurve project={project} updateProject={updateProject} />}
+        {activeTab === "notes"        && <Notes        project={project} updateProject={updateProject} />}
+        {activeTab === "sketches"      && <Sketches     project={project} updateProject={updateProject} />}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 天地人
+// ═══════════════════════════════════════════════════════════
+function TenchiJin({ project, updateProject }) {
+  const set = (k, v) => updateProject(p => ({ ...p, tenchiJin: { ...p.tenchiJin, [k]: v } }));
+  const t = project.tenchiJin;
+  const items = [
+    { key: "ten",  icon: "☰", label: "天（テーマ）",  hint: "この作品が問いかけること・伝えたいメッセージ・核心的なテーマ", rows: 4 },
+    { key: "chi",  icon: "⬡", label: "地（世界観）",  hint: "時代・舞台・社会背景・世界のルールと制約", rows: 5 },
+    { key: "jin",  icon: "◉", label: "人（主人公）",  hint: "欲求・欠乏・変化の弧（arc）・核心的な葛藤", rows: 5 },
+  ];
+  return (
+    <div className="max-w-2xl mx-auto space-y-4">
+      {items.map(({ key, icon, label, hint, rows }) => (
+        <div key={key} className={cx.card}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-amber-500 text-lg font-bold">{icon}</span>
+            <span className="font-semibold text-white">{label}</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">{hint}</p>
+          <textarea className={cx.ta} rows={rows} value={t[key]}
+            onChange={e => set(key, e.target.value)} placeholder={hint} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 登場人物
+// ═══════════════════════════════════════════════════════════
+function Characters({ project, updateProject }) {
+  const [editId, setEditId] = useState(null);
+
+  const add = () => {
+    const c = createCharacter();
+    updateProject(p => ({ ...p, characters: [...p.characters, c] }));
+    setEditId(c.id);
+  };
+  const del = (id) => {
+    if (!confirm("削除しますか？")) return;
+    updateProject(p => ({ ...p, characters: p.characters.filter(c => c.id !== id) }));
+    if (editId === id) setEditId(null);
+  };
+  const setC = (id, k, v) => updateProject(p => ({
+    ...p, characters: p.characters.map(c => c.id === id ? { ...c, [k]: v } : c)
+  }));
+
+  const editing = project.characters.find(c => c.id === editId);
+  const ROLES = ["主要", "サブ", "敵対", "メンター", "脇役"];
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex justify-between items-center mb-4">
+        <span className="text-sm text-gray-400">{project.characters.length}人</span>
+        <button className={`${cx.btn} ${cx.pri}`} onClick={add}>＋ 追加</button>
+      </div>
+
+      {/* カード一覧 */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        {project.characters.map(c => (
+          <div key={c.id}
+            className={`${cx.card} cursor-pointer transition-colors ${editId === c.id ? "border-amber-600" : "hover:border-gray-600"}`}
+            onClick={() => setEditId(editId === c.id ? null : c.id)}>
+            <div className="flex justify-between items-start mb-1">
+              <div>
+                <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
+                <div className="text-xs text-gray-500">{c.age && `${c.age}歳 `}{c.role}</div>
+              </div>
+              <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0`}
+                onClick={e => { e.stopPropagation(); del(c.id); }}>✕</button>
+            </div>
+            {c.motivation && <p className="text-xs text-gray-400 line-clamp-2 mt-1">{c.motivation}</p>}
+            {(c.arcStart || c.arcEnd) && (
+              <div className="mt-2 flex items-center gap-1 text-xs text-gray-600">
+                <span>{c.arcStart || "―"}</span>
+                <span className="text-amber-800">→</span>
+                <span>{c.arcEnd || "―"}</span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* 編集パネル */}
+      {editing && (
+        <div className={cx.card}>
+          <div className="flex justify-between items-center mb-3">
+            <span className="font-semibold text-amber-400 text-sm">キャラクター編集</span>
+            <button className="text-gray-500 hover:text-white text-xs" onClick={() => setEditId(null)}>✕ 閉じる</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { k: "name",        lbl: "名前",                   full: true,  type: "input" },
+              { k: "age",         lbl: "年齢",                   full: false, type: "input" },
+              { k: "role",        lbl: "役割",                   full: false, type: "select", opts: ROLES },
+              { k: "appearance",  lbl: "外見・印象",             full: true,  type: "ta",    rows: 2 },
+              { k: "personality", lbl: "性格",                   full: true,  type: "ta",    rows: 2 },
+              { k: "motivation",  lbl: "動機（何が欲しいか）",   full: true,  type: "ta",    rows: 2 },
+              { k: "secret",      lbl: "秘密・隠された面",       full: true,  type: "ta",    rows: 2 },
+              { k: "relation",    lbl: "主人公との関係",         full: true,  type: "input" },
+              { k: "arcStart",    lbl: "物語開始の状態（弧 起）", full: false, type: "input" },
+              { k: "arcEnd",      lbl: "物語終了の状態（弧 結）", full: false, type: "input" },
+            ].map(({ k, lbl, full, type, opts, rows }) => (
+              <div key={k} className={full ? "col-span-2" : ""}>
+                <label className={cx.lbl}>{lbl}</label>
+                {type === "input" && <input className={cx.input} value={editing[k]} onChange={e => setC(editing.id, k, e.target.value)} />}
+                {type === "ta"    && <textarea className={cx.ta} rows={rows} value={editing[k]} onChange={e => setC(editing.id, k, e.target.value)} />}
+                {type === "select" && (
+                  <select className={cx.input} value={editing[k]} onChange={e => setC(editing.id, k, e.target.value)}>
+                    {opts.map(o => <option key={o}>{o}</option>)}
+                  </select>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 起承転結 / 三幕構成
+// ═══════════════════════════════════════════════════════════
+function Structure({ project, updateProject }) {
+  const st = project.structure;
+  const set = (k, v) => updateProject(p => ({ ...p, structure: { ...p.structure, [k]: v } }));
+
+  const KSKT = [
+    { k: "ki",    label: "起", hint: "状況設定・主人公の日常・世界の提示" },
+    { k: "sho",   label: "承", hint: "展開・問題の深化・目標の明確化" },
+    { k: "ten_",  label: "転", hint: "急転直下・予期せぬ変化・最大の危機" },
+    { k: "ketsu", label: "結", hint: "解決・主人公の変化・新たな日常" },
+  ];
+  const ACT3 = [
+    { k: "act1",     label: "第一幕 — セットアップ",   hint: "日常・目標の設定・triggering event" },
+    { k: "act2a",    label: "第二幕前半",               hint: "新世界への適応・障害と試練" },
+    { k: "midpoint", label: "ミッドポイント",           hint: "虚偽の勝利 or 致命的な敗北" },
+    { k: "act2b",    label: "第二幕後半",               hint: "全てが崩壊・最暗部（all is lost）" },
+    { k: "act3",     label: "第三幕 — 解決",            hint: "クライマックス・変容・新たな日常" },
+  ];
+  const items = st.mode === "起承転結" ? KSKT : ACT3;
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex gap-2 mb-4">
+        {["起承転結", "三幕構成"].map(m => (
+          <button key={m} className={`${cx.btn} ${st.mode === m ? cx.pri : cx.ghost}`}
+            onClick={() => set("mode", m)}>{m}</button>
+        ))}
+      </div>
+      <div className="space-y-3">
+        {items.map(({ k, label, hint }) => (
+          <div key={k} className={cx.card}>
+            <div className="flex items-baseline gap-3 mb-2">
+              <span className="text-amber-500 font-bold">{label}</span>
+              <span className="text-xs text-gray-500">{hint}</span>
+            </div>
+            <textarea className={cx.ta} rows={4} value={st[k] || ""}
+              onChange={e => set(k, e.target.value)} placeholder={hint} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 箱書き（幕 → [エピソード] → シーン）
+// ═══════════════════════════════════════════════════════════
+function Hakogaki({ project, updateProject }) {
+  const hk = project.hakogaki;
+  const [openActs, setOpenActs] = useState(() => Object.fromEntries(hk.acts.map(a => [a.id, true])));
+  const [openEps,  setOpenEps]  = useState({});
+  const [editing,  setEditing]  = useState(null); // { actId, epId|null, sceneId }
+  const [sceneDrawing, setSceneDrawing] = useState(null); // { actId, epId, sceneId }
+
+  const setHk = (val) => updateProject(p => ({ ...p, hakogaki: val }));
+  const updAct = (actId, fn) => setHk({ ...hk, acts: hk.acts.map(a => a.id === actId ? fn(a) : a) });
+
+  // 幕
+  const addAct = () => {
+    const a = { id: genId(), name: `第${hk.acts.length + 1}幕`, episodes: [], scenes: [] };
+    setHk({ ...hk, acts: [...hk.acts, a] });
+    setOpenActs(o => ({ ...o, [a.id]: true }));
+  };
+  const delAct = (id) => {
+    if (!confirm("この幕を削除しますか？")) return;
+    setHk({ ...hk, acts: hk.acts.filter(a => a.id !== id) });
+  };
+
+  // エピソード
+  const addEp = (actId) => {
+    const act = hk.acts.find(a => a.id === actId);
+    const ep = createEpisode(act.episodes.length + 1);
+    updAct(actId, a => ({ ...a, episodes: [...a.episodes, ep] }));
+    setOpenEps(o => ({ ...o, [ep.id]: true }));
+  };
+  const delEp = (actId, epId) => {
+    if (!confirm("このエピソードを削除しますか？")) return;
+    updAct(actId, a => ({ ...a, episodes: a.episodes.filter(e => e.id !== epId) }));
+  };
+  const renameEp = (actId, epId, name) => updAct(actId, a => ({
+    ...a, episodes: a.episodes.map(e => e.id === epId ? { ...e, name } : e)
+  }));
+
+  // シーン
+  const addScene = (actId, epId) => {
+    const sc = createScene();
+    if (epId) updAct(actId, a => ({ ...a, episodes: a.episodes.map(e => e.id === epId ? { ...e, scenes: [...e.scenes, sc] } : e) }));
+    else       updAct(actId, a => ({ ...a, scenes: [...a.scenes, sc] }));
+    setEditing({ actId, epId, sceneId: sc.id });
+  };
+  const delScene = (actId, epId, sceneId) => {
+    if (!confirm("このシーンを削除しますか？")) return;
+    const rm = (arr) => arr.filter(s => s.id !== sceneId);
+    if (epId) updAct(actId, a => ({ ...a, episodes: a.episodes.map(e => e.id === epId ? { ...e, scenes: rm(e.scenes) } : e) }));
+    else       updAct(actId, a => ({ ...a, scenes: rm(a.scenes) }));
+    if (editing?.sceneId === sceneId) setEditing(null);
+  };
+  const setSceneField = (actId, epId, sceneId, k, v) => {
+    const upd = (arr) => arr.map(s => s.id === sceneId ? { ...s, [k]: v } : s);
+    if (epId) updAct(actId, a => ({ ...a, episodes: a.episodes.map(e => e.id === epId ? { ...e, scenes: upd(e.scenes) } : e) }));
+    else       updAct(actId, a => ({ ...a, scenes: upd(a.scenes) }));
+  };
+
+  // 編集中のシーンオブジェクト取得
+  const getEditSc = () => {
+    if (!editing) return null;
+    const act = hk.acts.find(a => a.id === editing.actId);
+    if (!act) return null;
+    const pool = editing.epId ? (act.episodes.find(e => e.id === editing.epId)?.scenes || []) : act.scenes;
+    return pool.find(s => s.id === editing.sceneId) || null;
+  };
+  const editSc = getEditSc();
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      {/* オプション行 */}
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+            <input type="checkbox" checked={hk.useEpisode} onChange={() => setHk({ ...hk, useEpisode: !hk.useEpisode })}
+              className="accent-amber-500 w-4 h-4" />
+            エピソード層（幕→EP→シーン）
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+            <input type="checkbox" checked={!!hk.useEmotionCurve} onChange={() => setHk({ ...hk, useEmotionCurve: !hk.useEmotionCurve })}
+              className="accent-amber-500 w-4 h-4" />
+            感情曲線
+          </label>
+        </div>
+        <button className={`${cx.btn} ${cx.ghost} text-xs`} onClick={addAct}>＋ 幕を追加</button>
+      </div>
+
+      {/* 幕リスト */}
+      <div className="space-y-3">
+        {hk.acts.map(act => (
+          <div key={act.id} className="border border-gray-800 rounded-lg overflow-hidden">
+            {/* 幕ヘッダー */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-gray-800/60">
+              <button className="text-gray-400 text-xs w-4" onClick={() => setOpenActs(o => ({ ...o, [act.id]: !o[act.id] }))}>
+                {openActs[act.id] !== false ? "▼" : "▶"}
+              </button>
+              <input className="bg-transparent font-semibold text-amber-400 flex-1 focus:outline-none text-sm"
+                value={act.name} onChange={e => updAct(act.id, a => ({ ...a, name: e.target.value }))} />
+              <div className="flex gap-1">
+                {hk.useEpisode && (
+                  <button className={`${cx.btn} ${cx.ghost} text-xs py-0.5 px-2`} onClick={() => addEp(act.id)}>＋ EP</button>
+                )}
+                <button className={`${cx.btn} ${cx.ghost} text-xs py-0.5 px-2`} onClick={() => addScene(act.id, null)}>＋ シーン</button>
+                <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0.5`} onClick={() => delAct(act.id)}>✕</button>
+              </div>
+            </div>
+
+            {openActs[act.id] !== false && (
+              <div className="p-2 space-y-2">
+                {/* エピソード */}
+                {hk.useEpisode && act.episodes.map(ep => (
+                  <div key={ep.id} className="border border-gray-700 rounded">
+                    <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-800/30">
+                      <button className="text-gray-500 text-xs w-4" onClick={() => setOpenEps(o => ({ ...o, [ep.id]: !o[ep.id] }))}>
+                        {openEps[ep.id] !== false ? "▼" : "▶"}
+                      </button>
+                      <input className="bg-transparent text-sm text-purple-300 flex-1 focus:outline-none"
+                        value={ep.name} onChange={e => renameEp(act.id, ep.id, e.target.value)} />
+                      <button className={`${cx.btn} ${cx.ghost} text-xs py-0 px-2`} onClick={() => addScene(act.id, ep.id)}>＋ シーン</button>
+                      <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0`} onClick={() => delEp(act.id, ep.id)}>✕</button>
+                    </div>
+                    {openEps[ep.id] !== false && (
+                      <div className="p-1.5 space-y-1">
+                        {ep.scenes.length === 0 && <p className="text-xs text-gray-600 text-center py-2">シーンがありません</p>}
+                        {ep.scenes.map(sc => (
+                          <SceneRow key={sc.id} sc={sc} active={editing?.sceneId === sc.id}
+                            onClick={() => setEditing({ actId: act.id, epId: ep.id, sceneId: sc.id })}
+                            onDel={() => delScene(act.id, ep.id, sc.id)} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* 直接シーン（エピソード層なし or 幕直下） */}
+                {act.scenes.length === 0 && !hk.useEpisode && (
+                  <p className="text-xs text-gray-600 text-center py-2">シーンがありません</p>
+                )}
+                {act.scenes.map(sc => (
+                  <SceneRow key={sc.id} sc={sc} active={editing?.sceneId === sc.id}
+                    onClick={() => setEditing({ actId: act.id, epId: null, sceneId: sc.id })}
+                    onDel={() => delScene(act.id, null, sc.id)} />
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* シーン編集パネル */}
+      {editSc && editing && (
+        <div className={`${cx.card} mt-4`}>
+          <div className="flex justify-between items-center mb-3">
+            <span className="font-semibold text-amber-400 text-sm">シーン編集</span>
+            <button className="text-gray-500 hover:text-white text-xs" onClick={() => setEditing(null)}>✕ 閉じる</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={cx.lbl}>場所</label>
+              <input className={cx.input} value={editSc.location} placeholder="例: 主人公の部屋"
+                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "location", e.target.value)} />
+            </div>
+            <div>
+              <label className={cx.lbl}>時間帯</label>
+              <select className={cx.input} value={editSc.time}
+                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "time", e.target.value)}>
+                {["朝", "昼", "夕方", "夜", "深夜", "未明", "不明"].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={cx.lbl}>シーン種別</label>
+              <select className={cx.input} value={editSc.type}
+                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "type", e.target.value)}>
+                {Object.entries(SCENE_TYPE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={cx.lbl}>登場人物</label>
+              <input className={cx.input} value={editSc.characters} placeholder="例: 主人公、田中"
+                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "characters", e.target.value)} />
+            </div>
+            <div className="col-span-2">
+              <label className={cx.lbl}>内容（このシーンで起きること）</label>
+              <textarea className={cx.ta} rows={3} value={editSc.content}
+                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "content", e.target.value)} />
+            </div>
+            <div className="col-span-2">
+              <label className={cx.lbl}>目的（物語上このシーンが必要な理由）</label>
+              <textarea className={cx.ta} rows={2} value={editSc.purpose}
+                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "purpose", e.target.value)} />
+            </div>
+            {hk.useEmotionCurve && (
+              <div className="col-span-2">
+                <label className={cx.lbl}>感情値（主人公の感情状態: -5 〜 +5）</label>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500 w-12 text-right">絶望 −5</span>
+                  <input type="range" min={-5} max={5} step={1}
+                    className="flex-1 accent-amber-500"
+                    value={editSc.emotion ?? 0}
+                    onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "emotion", Number(e.target.value))} />
+                  <span className="text-xs text-gray-500 w-12">+5 高揚</span>
+                  <span className={`text-sm font-bold w-6 text-center ${(editSc.emotion ?? 0) > 0 ? "text-amber-400" : (editSc.emotion ?? 0) < 0 ? "text-blue-400" : "text-gray-400"}`}>
+                    {(editSc.emotion ?? 0) > 0 ? `+${editSc.emotion}` : editSc.emotion}
+                  </span>
+                </div>
+              </div>
+            )}
+            <DrawingThumb
+              dataUrl={editSc.drawingDataUrl}
+              label="シーンスケッチ"
+              onEdit={() => setSceneDrawing({ actId: editing.actId, epId: editing.epId, sceneId: editSc.id })}
+              onClear={() => setSceneField(editing.actId, editing.epId, editSc.id, "drawingDataUrl", null)}
+            />
+          </div>
+        </div>
+      )}
+      {sceneDrawing && (() => {
+        const act = hk.acts.find(a => a.id === sceneDrawing.actId);
+        const pool = sceneDrawing.epId
+          ? (act?.episodes.find(e => e.id === sceneDrawing.epId)?.scenes || [])
+          : (act?.scenes || []);
+        const sc = pool.find(s => s.id === sceneDrawing.sceneId);
+        return (
+          <DrawingModal
+            initialDataUrl={sc?.drawingDataUrl}
+            onSave={dataUrl => setSceneField(sceneDrawing.actId, sceneDrawing.epId, sceneDrawing.sceneId, "drawingDataUrl", dataUrl)}
+            onClose={() => setSceneDrawing(null)}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+function SceneRow({ sc, active, onClick, onDel }) {
+  const t = SCENE_TYPE[sc.type] || SCENE_TYPE.daily;
+  return (
+    <div className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${active ? "bg-gray-700" : "bg-gray-800/40 hover:bg-gray-800"}`}
+      onClick={onClick}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.dot}`} title={t.label}></span>
+      <span className="text-xs text-amber-400/70 flex-shrink-0 w-12 truncate">{sc.location || "—"}</span>
+      <span className="text-xs text-gray-400 flex-1 min-w-0 truncate">{sc.content || "内容未入力"}</span>
+      <span className="text-xs text-gray-600 flex-shrink-0">{sc.time}</span>
+      <button className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 ml-1 bg-transparent border-0 cursor-pointer"
+        onClick={e => { e.stopPropagation(); onDel(); }}>✕</button>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// 手書き — DrawingModal
+// ═══════════════════════════════════════════════════════════
+const DRAW_COLORS = [
+  { v: "#f5f5f4", label: "白" },
+  { v: "#fbbf24", label: "黄" },
+  { v: "#f87171", label: "赤" },
+  { v: "#60a5fa", label: "青" },
+  { v: "#4ade80", label: "緑" },
+  { v: "#c084fc", label: "紫" },
+];
+const DRAW_SIZES = [
+  { v: 2,  label: "細" },
+  { v: 5,  label: "中" },
+  { v: 12, label: "太" },
+];
+const BG_COLOR = "#111827";
+
+function DrawingModal({ initialDataUrl, onSave, onClose }) {
+  const canvasRef  = useRef(null);
+  const isDrawing  = useRef(false);
+  const lastPt     = useRef(null);
+  const [tool,     setTool]     = useState("pen");
+  const [color,    setColor]    = useState(DRAW_COLORS[0].v);
+  const [size,     setSize]     = useState(DRAW_SIZES[1].v);
+  const [history,  setHistory]  = useState([]);
+  const [canUndo,  setCanUndo]  = useState(false);
+
+  // 初期化
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (initialDataUrl) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      img.src = initialDataUrl;
+    }
+  }, []);
+
+  const pushHistory = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const snap = canvas.toDataURL("image/jpeg", 0.6);
+    setHistory(h => { const next = [...h.slice(-15), snap]; setCanUndo(next.length > 0); return next; });
+  };
+
+  const undo = () => {
+    if (history.length === 0) return;
+    const canvas = canvasRef.current;
+    const ctx    = canvas.getContext("2d");
+    const prev   = history[history.length - 1];
+    setHistory(h => { const next = h.slice(0, -1); setCanUndo(next.length > 0); return next; });
+    const img = new Image();
+    img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0); };
+    img.src = prev;
+  };
+
+  const clear = () => {
+    pushHistory();
+    const canvas = canvasRef.current;
+    const ctx    = canvas.getContext("2d");
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  // ポインター座標をキャンバス座標へ変換
+  const toCanvasXY = (e) => {
+    const canvas = canvasRef.current;
+    const rect   = canvas.getBoundingClientRect();
+    const sx = canvas.width  / rect.width;
+    const sy = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * sx,
+      y: (e.clientY - rect.top)  * sy,
+      pressure: e.pressure > 0 ? e.pressure : 0.5,
+    };
+  };
+
+  const onPointerDown = (e) => {
+    e.preventDefault();
+    // スタイラス以外の2本指タッチはスクロール扱いにする
+    if (e.pointerType === "touch" && e.isPrimary === false) return;
+    pushHistory();
+    isDrawing.current = true;
+    canvasRef.current.setPointerCapture(e.pointerId);
+    const pt  = toCanvasXY(e);
+    lastPt.current = pt;
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    const r = (tool === "eraser" ? size * 4 : size * (0.4 + pt.pressure * 1.2)) / 2;
+    ctx.arc(pt.x, pt.y, Math.max(r, 1), 0, Math.PI * 2);
+    ctx.fillStyle = tool === "eraser" ? BG_COLOR : color;
+    ctx.fill();
+  };
+
+  const onPointerMove = (e) => {
+    if (!isDrawing.current) return;
+    e.preventDefault();
+    if (e.pointerType === "touch" && e.isPrimary === false) return;
+    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    const ctx    = canvasRef.current.getContext("2d");
+    for (const ev of events) {
+      const pt       = toCanvasXY(ev);
+      const pressure = ev.pressure > 0 ? ev.pressure : 0.5;
+      const lw       = tool === "eraser"
+        ? size * 7
+        : size * (0.4 + pressure * 1.6);
+      ctx.beginPath();
+      ctx.moveTo(lastPt.current.x, lastPt.current.y);
+      ctx.lineTo(pt.x, pt.y);
+      ctx.strokeStyle  = tool === "eraser" ? BG_COLOR : color;
+      ctx.lineWidth    = Math.max(lw, 1);
+      ctx.lineCap      = "round";
+      ctx.lineJoin     = "round";
+      ctx.stroke();
+      lastPt.current = pt;
+    }
+  };
+
+  const onPointerUp = () => { isDrawing.current = false; lastPt.current = null; };
+
+  const handleSave = () => {
+    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.72);
+    onSave(dataUrl);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/90 z-50 flex flex-col" style={{ touchAction: "none" }}>
+      {/* ツールバー */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-gray-800 flex-wrap">
+        {/* ペン / 消しゴム */}
+        <div className="flex gap-1">
+          {[{ id: "pen", icon: "✏️" }, { id: "eraser", icon: "⬜" }].map(t => (
+            <button key={t.id}
+              className={`${cx.btn} text-xs py-1 px-2 ${tool === t.id ? cx.pri : cx.ghost}`}
+              onPointerDown={e => { e.stopPropagation(); setTool(t.id); }}>
+              {t.icon} {t.id === "pen" ? "ペン" : "消しゴム"}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* カラー */}
+        <div className="flex gap-1">
+          {DRAW_COLORS.map(c => (
+            <button key={c.v} title={c.label}
+              className={`w-6 h-6 rounded-full border-2 transition-transform ${color === c.v ? "border-white scale-125" : "border-transparent"}`}
+              style={{ background: c.v }}
+              onPointerDown={e => { e.stopPropagation(); setColor(c.v); setTool("pen"); }} />
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* サイズ */}
+        <div className="flex gap-1">
+          {DRAW_SIZES.map(s => (
+            <button key={s.v}
+              className={`${cx.btn} text-xs py-1 px-2 ${size === s.v ? cx.pri : cx.ghost}`}
+              onPointerDown={e => { e.stopPropagation(); setSize(s.v); }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-gray-700" />
+
+        {/* Undo / Clear */}
+        <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2 ${!canUndo ? "opacity-30" : ""}`}
+          onPointerDown={e => { e.stopPropagation(); undo(); }} disabled={!canUndo}>↩ 戻す</button>
+        <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`}
+          onPointerDown={e => { e.stopPropagation(); clear(); }}>🗑 全消し</button>
+
+        <div className="flex-1" />
+
+        {/* Save / Cancel */}
+        <button className={`${cx.btn} ${cx.ghost} text-xs`}
+          onPointerDown={e => { e.stopPropagation(); onClose(); }}>キャンセル</button>
+        <button className={`${cx.btn} ${cx.pri} text-xs`}
+          onPointerDown={e => { e.stopPropagation(); handleSave(); }}>💾 保存</button>
+      </div>
+
+      {/* キャンバス */}
+      <div className="flex-1 overflow-hidden flex items-center justify-center bg-gray-950 p-2">
+        <canvas
+          ref={canvasRef}
+          width={1600} height={960}
+          style={{ width: "100%", height: "100%", objectFit: "contain", touchAction: "none", cursor: tool === "eraser" ? "crosshair" : "default" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        />
+      </div>
+    </div>
+  );
+}
+
+// サムネイル表示 + 編集ボタン
+function DrawingThumb({ dataUrl, onEdit, onClear, label = "手書きメモ" }) {
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-1">
+        <label className={cx.lbl}>{label}</label>
+        <div className="flex gap-1">
+          <button className={`${cx.btn} ${cx.ghost} text-xs py-0.5 px-2`} onClick={onEdit}>
+            {dataUrl ? "✏ 編集" : "✏ 描く"}
+          </button>
+          {dataUrl && (
+            <button className={`${cx.btn} ${cx.danger} text-xs py-0.5 px-1`} onClick={onClear}>✕</button>
+          )}
+        </div>
+      </div>
+      {dataUrl ? (
+        <div className="relative rounded overflow-hidden border border-gray-700 cursor-pointer" onClick={onEdit}>
+          <img src={dataUrl} alt="手書きメモ" className="w-full object-contain max-h-48 bg-gray-900" />
+        </div>
+      ) : (
+        <div className="border border-dashed border-gray-700 rounded h-16 flex items-center justify-center cursor-pointer hover:border-gray-500 transition-colors"
+          onClick={onEdit}>
+          <span className="text-xs text-gray-600">タップして描く</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 専用スケッチタブ
+// ═══════════════════════════════════════════════════════════
+function Sketches({ project, updateProject }) {
+  const sketches = project.sketches || [];
+  const [drawTarget, setDrawTarget] = useState(null); // sketchId
+
+  const addSketch = () => {
+    const s = createSketch(`スケッチ ${sketches.length + 1}`);
+    updateProject(p => ({ ...p, sketches: [...(p.sketches || []), s] }));
+    setDrawTarget(s.id);
+  };
+  const delSketch = (id) => {
+    if (!confirm("このスケッチを削除しますか？")) return;
+    updateProject(p => ({ ...p, sketches: (p.sketches || []).filter(s => s.id !== id) }));
+  };
+  const setSketchField = (id, k, v) => updateProject(p => ({
+    ...p, sketches: (p.sketches || []).map(s => s.id === id ? { ...s, [k]: v } : s)
+  }));
+
+  const openTarget = sketches.find(s => s.id === drawTarget);
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      {drawTarget && openTarget && (
+        <DrawingModal
+          initialDataUrl={openTarget.drawingDataUrl}
+          onSave={dataUrl => setSketchField(drawTarget, "drawingDataUrl", dataUrl)}
+          onClose={() => setDrawTarget(null)}
+        />
+      )}
+
+      <div className="flex justify-between items-center mb-4">
+        <span className="text-sm text-gray-400">{sketches.length}枚</span>
+        <button className={`${cx.btn} ${cx.pri}`} onClick={addSketch}>＋ 新しいスケッチ</button>
+      </div>
+
+      {sketches.length === 0 && (
+        <div className="text-center py-20 text-gray-600">
+          <div className="text-5xl mb-4">✏️</div>
+          <p className="text-sm">スケッチがありません。「＋ 新しいスケッチ」で追加してください。</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4">
+        {sketches.map(s => (
+          <div key={s.id} className={cx.card}>
+            <div className="flex items-center gap-2 mb-2">
+              <input className="bg-transparent flex-1 text-sm font-medium text-white focus:outline-none"
+                value={s.title} onChange={e => setSketchField(s.id, "title", e.target.value)}
+                placeholder="タイトル" />
+              <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0`}
+                onClick={() => delSketch(s.id)}>✕</button>
+            </div>
+            {s.drawingDataUrl ? (
+              <div className="relative rounded overflow-hidden border border-gray-700 cursor-pointer mb-2"
+                onClick={() => setDrawTarget(s.id)}>
+                <img src={s.drawingDataUrl} alt={s.title} className="w-full object-contain bg-gray-900" />
+                <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-all">
+                  <span className="text-white text-sm font-medium bg-black/60 px-3 py-1 rounded">✏ 編集</span>
+                </div>
+              </div>
+            ) : (
+              <div className="border border-dashed border-gray-700 rounded h-28 flex items-center justify-center cursor-pointer hover:border-amber-600 transition-colors mb-2"
+                onClick={() => setDrawTarget(s.id)}>
+                <span className="text-xs text-gray-500">タップして描く</span>
+              </div>
+            )}
+            <p className="text-xs text-gray-600">{new Date(s.createdAt).toLocaleDateString("ja-JP")}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// 感情曲線
+// ═══════════════════════════════════════════════════════════
+function EmotionCurve({ project }) {
+  const hk = project.hakogaki;
+
+  // 全シーンをフラットに取り出す（幕名・エピソード名付き）
+  const allScenes = [];
+  for (const act of hk.acts) {
+    if (hk.useEpisode) {
+      for (const ep of act.episodes) {
+        for (const sc of ep.scenes) {
+          allScenes.push({ ...sc, actName: act.name, epName: ep.name });
+        }
+      }
+    }
+    for (const sc of act.scenes) {
+      allScenes.push({ ...sc, actName: act.name, epName: null });
+    }
+  }
+
+  if (allScenes.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-16 text-gray-600">
+        <div className="text-4xl mb-3">〰</div>
+        <p className="text-sm">箱書きにシーンを追加すると感情曲線が表示されます。</p>
+        <p className="text-xs mt-1 text-gray-700">各シーンの編集パネルで感情値（−5〜+5）を設定してください。</p>
+      </div>
+    );
+  }
+
+  const W = 640, H = 280, PAD = { t: 24, b: 48, l: 40, r: 16 };
+  const innerW = W - PAD.l - PAD.r;
+  const innerH = H - PAD.t - PAD.b;
+  const toX = (i) => PAD.l + (i / Math.max(allScenes.length - 1, 1)) * innerW;
+  const toY = (v) => PAD.t + ((5 - v) / 10) * innerH;
+
+  // SVGパス
+  const pts = allScenes.map((sc, i) => [toX(i), toY(sc.emotion ?? 0)]);
+  const d = pts.map((p, i) => (i === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`)).join(" ");
+
+  // 幕区切り線のX座標
+  const actLines = [];
+  let idx = 0;
+  for (const act of hk.acts) {
+    const count = hk.useEpisode
+      ? act.episodes.reduce((s, e) => s + e.scenes.length, 0) + act.scenes.length
+      : act.scenes.length;
+    if (idx > 0) actLines.push({ x: toX(idx), name: act.name });
+    idx += count;
+  }
+
+  const [hover, setHover] = useState(null);
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className={`${cx.card} mb-4`}>
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-semibold text-white text-sm">主人公の感情曲線</span>
+          <span className="text-xs text-gray-500">{allScenes.length}シーン</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <svg width={W} height={H} className="block">
+            {/* グリッド */}
+            {[-5,-4,-3,-2,-1,0,1,2,3,4,5].map(v => (
+              <g key={v}>
+                <line x1={PAD.l} x2={W - PAD.r} y1={toY(v)} y2={toY(v)}
+                  stroke={v === 0 ? "#4b5563" : "#1f2937"} strokeWidth={v === 0 ? 1.5 : 1} strokeDasharray={v === 0 ? "" : "4 4"} />
+                <text x={PAD.l - 6} y={toY(v) + 4} textAnchor="end" fontSize={9} fill={v === 0 ? "#6b7280" : "#374151"}>
+                  {v > 0 ? `+${v}` : v}
+                </text>
+              </g>
+            ))}
+
+            {/* 幕区切り */}
+            {actLines.map((al, i) => (
+              <g key={i}>
+                <line x1={al.x} x2={al.x} y1={PAD.t} y2={H - PAD.b} stroke="#78350f" strokeWidth={1} strokeDasharray="6 3" />
+                <text x={al.x + 4} y={PAD.t + 10} fontSize={9} fill="#92400e">{al.name}</text>
+              </g>
+            ))}
+
+            {/* ゼロラベル */}
+            <text x={PAD.l - 6} y={toY(0) + 4} textAnchor="end" fontSize={9} fill="#6b7280">0</text>
+
+            {/* 塗りつぶし */}
+            {allScenes.length > 1 && (
+              <path
+                d={`${d} L${pts[pts.length-1][0]},${toY(0)} L${pts[0][0]},${toY(0)} Z`}
+                fill="url(#emotionGrad)" opacity={0.3}
+              />
+            )}
+
+            <defs>
+              <linearGradient id="emotionGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#d97706" />
+                <stop offset="100%" stopColor="#1e3a5f" />
+              </linearGradient>
+            </defs>
+
+            {/* 折れ線 */}
+            {allScenes.length > 1 && (
+              <path d={d} fill="none" stroke="#d97706" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            )}
+
+            {/* 点 */}
+            {pts.map(([x, y], i) => (
+              <circle key={i} cx={x} cy={y} r={hover === i ? 6 : 4}
+                fill={hover === i ? "#fbbf24" : "#d97706"} stroke="#0a0a0f" strokeWidth={2}
+                style={{ cursor: "pointer", transition: "r 0.1s" }}
+                onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />
+            ))}
+
+            {/* ホバー tooltip */}
+            {hover !== null && (() => {
+              const sc = allScenes[hover];
+              const [x, y] = pts[hover];
+              const tipW = 140, tipH = 52;
+              const tx = x + tipW + 8 > W ? x - tipW - 8 : x + 8;
+              const ty = y - tipH / 2 < PAD.t ? PAD.t : y - tipH / 2;
+              return (
+                <g>
+                  <rect x={tx} y={ty} width={tipW} height={tipH} rx={4} fill="#1f2937" stroke="#374151" />
+                  <text x={tx + 8} y={ty + 16} fontSize={10} fill="#fbbf24" fontWeight="bold">
+                    {sc.location || "場所未設定"}
+                  </text>
+                  <text x={tx + 8} y={ty + 30} fontSize={9} fill="#9ca3af">
+                    {sc.actName}{sc.epName ? ` › ${sc.epName}` : ""}
+                  </text>
+                  <text x={tx + 8} y={ty + 44} fontSize={10} fill={(sc.emotion ?? 0) >= 0 ? "#fbbf24" : "#60a5fa"} fontWeight="bold">
+                    感情値: {(sc.emotion ?? 0) > 0 ? `+${sc.emotion}` : (sc.emotion ?? 0)}
+                  </text>
+                </g>
+              );
+            })()}
+          </svg>
+        </div>
+        <p className="text-xs text-gray-600 mt-2 text-center">各シーンにカーソルを合わせると詳細が表示されます。感情値は箱書きタブのシーン編集で設定してください。</p>
+      </div>
+
+      {/* シーン一覧（感情値付き） */}
+      <div className={cx.card}>
+        <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">シーン一覧</p>
+        <div className="space-y-1">
+          {allScenes.map((sc, i) => {
+            const em = sc.emotion ?? 0;
+            return (
+              <div key={sc.id} className="flex items-center gap-3 py-1 border-b border-gray-800 last:border-0">
+                <span className="text-xs text-gray-600 w-5 text-right">{i + 1}</span>
+                <span className="text-xs text-amber-500/60 w-12 truncate">{sc.actName}</span>
+                <span className="text-xs text-gray-300 flex-1 truncate">{sc.location || sc.content || "—"}</span>
+                <div className="flex items-center gap-1 w-24">
+                  <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${Math.abs(em) / 5 * 100}%`,
+                        marginLeft: em < 0 ? `${(5 + em) / 5 * 100}%` : "50%",
+                        background: em >= 0 ? "#d97706" : "#3b82f6",
+                      }} />
+                  </div>
+                  <span className={`text-xs font-bold w-6 text-right ${em > 0 ? "text-amber-400" : em < 0 ? "text-blue-400" : "text-gray-500"}`}>
+                    {em > 0 ? `+${em}` : em}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 設定メモ
+// ═══════════════════════════════════════════════════════════
+function Notes({ project, updateProject }) {
+  const [editId,    setEditId]    = useState(null);
+  const [tagFilter, setTagFilter] = useState("");
+  const [noteDrawId, setNoteDrawId] = useState(null);
+
+  const add = () => {
+    const n = { id: genId(), title: "", content: "", tags: [], drawingDataUrl: null };
+    updateProject(p => ({ ...p, notes: [...p.notes, n] }));
+    setEditId(n.id);
+  };
+  const del = (id) => {
+    if (!confirm("削除しますか？")) return;
+    updateProject(p => ({ ...p, notes: p.notes.filter(n => n.id !== id) }));
+    if (editId === id) setEditId(null);
+  };
+  const setN = (id, k, v) => updateProject(p => ({
+    ...p, notes: p.notes.map(n => n.id === id ? { ...n, [k]: v } : n)
+  }));
+
+  const allTags = [...new Set(project.notes.flatMap(n => n.tags))];
+  const filtered = tagFilter ? project.notes.filter(n => n.tags.includes(tagFilter)) : project.notes;
+  const editing = project.notes.find(n => n.id === editId);
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      {/* タグフィルター */}
+      <div className="flex justify-between items-center mb-3">
+        <div className="flex gap-1 flex-wrap">
+          <button className={`${cx.badge} cursor-pointer ${!tagFilter ? "bg-amber-900/60 text-amber-300" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
+            onClick={() => setTagFilter("")}>すべて</button>
+          {allTags.map(t => (
+            <button key={t} className={`${cx.badge} cursor-pointer ${tagFilter === t ? "bg-amber-900/60 text-amber-300" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
+              onClick={() => setTagFilter(tagFilter === t ? "" : t)}>{t}</button>
+          ))}
+        </div>
+        <button className={`${cx.btn} ${cx.pri} text-xs`} onClick={add}>＋ メモ追加</button>
+      </div>
+
+      {/* カード一覧 */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        {filtered.map(n => (
+          <div key={n.id} className={`${cx.card} cursor-pointer transition-colors ${editId === n.id ? "border-amber-600" : "hover:border-gray-600"}`}
+            onClick={() => setEditId(editId === n.id ? null : n.id)}>
+            <div className="flex justify-between items-start mb-1">
+              <span className="font-medium text-white text-sm truncate">{n.title || "無題メモ"}</span>
+              <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0 flex-shrink-0`}
+                onClick={e => { e.stopPropagation(); del(n.id); }}>✕</button>
+            </div>
+            {n.content && <p className="text-xs text-gray-400 line-clamp-3 whitespace-pre-wrap">{n.content}</p>}
+            <div className="flex gap-1 mt-2 flex-wrap">
+              {n.tags.map(t => <span key={t} className={`${cx.badge} bg-gray-800 text-gray-400`}>{t}</span>)}
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="col-span-2 text-center py-8 text-gray-600 text-sm">メモがありません</div>
+        )}
+      </div>
+
+      {/* 編集パネル */}
+      {editing && (
+        <div className={cx.card}>
+          <div className="flex justify-between items-center mb-3">
+            <span className="font-semibold text-amber-400 text-sm">メモ編集</span>
+            <button className="text-gray-500 hover:text-white text-xs" onClick={() => setEditId(null)}>✕ 閉じる</button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className={cx.lbl}>タイトル</label>
+              <input className={cx.input} value={editing.title} placeholder="メモのタイトル"
+                onChange={e => setN(editing.id, "title", e.target.value)} />
+            </div>
+            <div>
+              <label className={cx.lbl}>内容</label>
+              <textarea className={cx.ta} rows={8} value={editing.content} placeholder="自由に書いてください"
+                onChange={e => setN(editing.id, "content", e.target.value)} />
+            </div>
+            <div>
+              <label className={cx.lbl}>タグ（カンマ区切り）</label>
+              <input className={cx.input} placeholder="例: 世界観, 用語集, リサーチ"
+                value={editing.tags.join(", ")}
+                onChange={e => setN(editing.id, "tags", e.target.value.split(",").map(t => t.trim()).filter(Boolean))} />
+            </div>
+            <DrawingThumb
+              dataUrl={editing.drawingDataUrl}
+              label="手書きメモ"
+              onEdit={() => setNoteDrawId(editing.id)}
+              onClear={() => setN(editing.id, "drawingDataUrl", null)}
+            />
+          </div>
+        </div>
+      )}
+      {noteDrawId && (
+        <DrawingModal
+          initialDataUrl={(project.notes.find(n => n.id === noteDrawId) || {}).drawingDataUrl}
+          onSave={dataUrl => setN(noteDrawId, "drawingDataUrl", dataUrl)}
+          onClose={() => setNoteDrawId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// GitHub Gist 同期
+// ═══════════════════════════════════════════════════════════
+const GIST_KEY   = "scenario_koubo_gist_v1";   // { token, gistId }
+const GIST_FILE  = "scenario_koubo_data.json";
+const DEBOUNCE   = 4000; // ms
+
+const gistLoad  = () => { try { return JSON.parse(localStorage.getItem(GIST_KEY) || "null") || {}; } catch { return {}; } };
+const gistSave  = (v) => localStorage.setItem(GIST_KEY, JSON.stringify(v));
+
+const gistHeaders = (token) => ({
+  Authorization: `Bearer ${token}`,
+  "Content-Type": "application/json",
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+});
+
+async function gistFetch(gistId, token) {
+  const r = await fetch(`https://api.github.com/gists/${gistId}`, { headers: gistHeaders(token) });
+  if (!r.ok) throw new Error(`Gist取得失敗 (${r.status})`);
+  const j = await r.json();
+  const raw = j.files?.[GIST_FILE]?.content;
+  if (!raw) throw new Error("ファイルが見つかりません");
+  return JSON.parse(raw);
+}
+
+async function gistPatch(gistId, token, data) {
+  const r = await fetch(`https://api.github.com/gists/${gistId}`, {
+    method: "PATCH",
+    headers: gistHeaders(token),
+    body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify(data) } } }),
+  });
+  if (!r.ok) throw new Error(`Gist更新失敗 (${r.status})`);
+}
+
+async function gistCreate(token, data) {
+  const r = await fetch("https://api.github.com/gists", {
+    method: "POST",
+    headers: gistHeaders(token),
+    body: JSON.stringify({
+      description: "シナリオ工房 データ",
+      public: false,
+      files: { [GIST_FILE]: { content: JSON.stringify(data) } },
+    }),
+  });
+  if (!r.ok) throw new Error(`Gist作成失敗 (${r.status})`);
+  const j = await r.json();
+  return j.id;
+}
+
+// Gist同期フック
+function useGistSync(data, setData) {
+  const [cfg,       setCfgRaw]   = useState(gistLoad);   // { token, gistId }
+  const [syncState, setSyncState] = useState("idle");     // idle | saving | saved | error | loading
+  const [syncMsg,   setSyncMsg]   = useState("");
+  const [showSetting, setShowSetting] = useState(false);
+  const timerRef = useRef(null);
+  const prevDataRef = useRef(null);
+
+  const setCfg = (v) => { setCfgRaw(v); gistSave(v); };
+
+  const isReady = !!(cfg.token && cfg.gistId);
+
+  // 起動時にGistからデータを読み込む
+  useEffect(() => {
+    if (!cfg.token || !cfg.gistId) return;
+    setSyncState("loading");
+    gistFetch(cfg.gistId, cfg.token)
+      .then(remote => {
+        setData(remote);
+        prevDataRef.current = JSON.stringify(remote);
+        setSyncState("saved");
+        setSyncMsg("Gistから読み込みました");
+        setTimeout(() => setSyncState("idle"), 2500);
+      })
+      .catch(e => {
+        setSyncState("error");
+        setSyncMsg(e.message);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 起動時1回のみ
+
+  // データ変更時にデバウンス保存
+  useEffect(() => {
+    if (!isReady) return;
+    const current = JSON.stringify(data);
+    if (prevDataRef.current === current) return; // 変化なし（Gist読み込み直後など）
+    setSyncState("saving");
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      try {
+        await gistPatch(cfg.gistId, cfg.token, data);
+        prevDataRef.current = current;
+        setSyncState("saved");
+        setSyncMsg("Gistに保存しました");
+        setTimeout(() => setSyncState("idle"), 2500);
+      } catch (e) {
+        setSyncState("error");
+        setSyncMsg(e.message);
+      }
+    }, DEBOUNCE);
+    return () => clearTimeout(timerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  // 手動同期（Gistから読み込み）
+  const manualFetch = async () => {
+    if (!isReady) return;
+    setSyncState("loading");
+    try {
+      const remote = await gistFetch(cfg.gistId, cfg.token);
+      setData(remote);
+      prevDataRef.current = JSON.stringify(remote);
+      setSyncState("saved");
+      setSyncMsg("最新データを読み込みました");
+      setTimeout(() => setSyncState("idle"), 2500);
+    } catch (e) { setSyncState("error"); setSyncMsg(e.message); }
+  };
+
+  return { cfg, setCfg, syncState, syncMsg, showSetting, setShowSetting, isReady, manualFetch, gistCreate };
+}
+
+// 同期ステータスバッジ
+function SyncBadge({ syncState, syncMsg, onManualFetch, onOpenSetting, isReady }) {
+  const MAP = {
+    idle:    { label: isReady ? "✓ Gist同期中" : "⚠ Gist未設定", color: isReady ? "text-green-400" : "text-yellow-500" },
+    saving:  { label: "⟳ 保存中…",     color: "text-amber-400 animate-pulse" },
+    saved:   { label: `✓ ${syncMsg}`,  color: "text-green-400" },
+    loading: { label: "⟳ 読み込み中…", color: "text-amber-400 animate-pulse" },
+    error:   { label: `✕ ${syncMsg}`,  color: "text-red-400" },
+  };
+  const { label, color } = MAP[syncState] || MAP.idle;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-xs ${color} hidden sm:inline`}>{label}</span>
+      {isReady && (
+        <button title="Gistから再読み込み" className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onManualFetch}>↓</button>
+      )}
+      <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onOpenSetting}>
+        {isReady ? "⚙" : "🔗 Gist設定"}
+      </button>
+    </div>
+  );
+}
+
+// Gist設定モーダル
+function GistSettingsModal({ cfg, setCfg, data, onClose, gistCreate }) {
+  const [token,   setToken]   = useState(cfg.token  || "");
+  const [gistId,  setGistId]  = useState(cfg.gistId || "");
+  const [status,  setStatus]  = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleConnect = async () => {
+    if (!token.trim()) { setStatus("❌ PATを入力してください"); return; }
+    setLoading(true); setStatus("確認中…");
+    try {
+      let id = gistId.trim();
+      if (!id) {
+        // 新規Gistを作成
+        id = await gistCreate(token.trim(), data);
+        setGistId(id);
+        setStatus(`✅ Gistを新規作成しました（ID: ${id}）`);
+      } else {
+        // 既存Gistを確認
+        await gistFetch(id, token.trim());
+        setStatus("✅ 既存Gistに接続しました");
+      }
+      setCfg({ token: token.trim(), gistId: id });
+    } catch (e) { setStatus(`❌ ${e.message}`); }
+    finally { setLoading(false); }
+  };
+
+  const handleDisconnect = () => {
+    if (!confirm("Gist同期を解除しますか？（ローカルデータは消えません）")) return;
+    setCfg({});
+    setToken(""); setGistId(""); setStatus("解除しました");
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6 shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-white text-lg">🔗 GitHub Gist 設定</h2>
+          <button className="text-gray-500 hover:text-white" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="space-y-4 text-sm">
+          {/* PAT */}
+          <div>
+            <label className={cx.lbl}>Personal Access Token（Gist スコープ）</label>
+            <input className={cx.input} type="password" value={token} onChange={e => setToken(e.target.value)}
+              placeholder="ghp_xxxxxxxxxxxx" />
+            <p className="text-xs text-gray-500 mt-1">
+              <a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" rel="noreferrer"
+                className="text-amber-400 underline">GitHub → Settings → Tokens → New token</a>
+              {" "}で「gist」スコープにチェック → 生成
+            </p>
+          </div>
+
+          {/* Gist ID */}
+          <div>
+            <label className={cx.lbl}>Gist ID（空白なら自動作成）</label>
+            <input className={cx.input} value={gistId} onChange={e => setGistId(e.target.value)}
+              placeholder="例: a1b2c3d4e5f6… （既存Gistを使う場合）" />
+            <p className="text-xs text-gray-500 mt-1">
+              別デバイスで使う場合は、このIDを控えておくと引き継げます。
+            </p>
+          </div>
+
+          {/* ステータス */}
+          {status && <p className={`text-sm ${status.startsWith("✅") ? "text-green-400" : status.startsWith("❌") ? "text-red-400" : "text-gray-400"}`}>{status}</p>}
+
+          {/* 注意 */}
+          <div className="bg-gray-800/60 rounded-lg p-3 text-xs text-gray-400">
+            ⚠️ PATはlocalStorageに保存されます。共有PCでは使用しないでください。
+          </div>
+
+          {/* ボタン */}
+          <div className="flex gap-2 pt-1">
+            <button className={`${cx.btn} ${cx.pri} flex-1`} onClick={handleConnect} disabled={loading}>
+              {loading ? "処理中…" : cfg.gistId ? "再接続" : "接続・作成"}
+            </button>
+            {cfg.gistId && (
+              <button className={`${cx.btn} ${cx.ghost}`} onClick={handleDisconnect}>解除</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ROOT
+// ═══════════════════════════════════════════════════════════
+export default function App() {
+  const [data,      setData]    = useState(load);
+  const [currentId, setCurrentId] = useState(null);
+  const [activeTab, setActiveTab] = useState("tenchiJin");
+
+  // ローカル保存
+  useEffect(() => { save(data); }, [data]);
+
+  // Gist同期
+  const gist = useGistSync(data, setData);
+
+  const currentProject = data.projects.find(p => p.id === currentId);
+
+  const updateProject = useCallback((fn) => {
+    setData(prev => ({ ...prev, projects: prev.projects.map(p => p.id === currentId ? fn(p) : p) }));
+  }, [currentId]);
+
+  const openProject = (id) => { setCurrentId(id); setActiveTab("tenchiJin"); };
+
+  return (
+    <>
+      {/* Gist設定モーダル */}
+      {gist.showSetting && (
+        <GistSettingsModal
+          cfg={gist.cfg}
+          setCfg={gist.setCfg}
+          data={data}
+          onClose={() => gist.setShowSetting(false)}
+          gistCreate={gistCreate}
+        />
+      )}
+
+      {(!currentId || !currentProject) ? (
+        <HomeScreen
+          data={data} setData={setData} onOpen={openProject}
+          syncState={gist.syncState} syncMsg={gist.syncMsg}
+          isReady={gist.isReady}
+          onManualFetch={gist.manualFetch}
+          onOpenSetting={() => gist.setShowSetting(true)}
+        />
+      ) : (
+        <ProjectScreen
+          project={currentProject}
+          updateProject={updateProject}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onBack={() => setCurrentId(null)}
+          syncState={gist.syncState}
+          syncMsg={gist.syncMsg}
+          isReady={gist.isReady}
+          onManualFetch={gist.manualFetch}
+          onOpenSetting={() => gist.setShowSetting(true)}
+        />
+      )}
+    </>
+  );
+}
