@@ -995,7 +995,7 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     }
     const totalRev = xRev + yRev;
     // BB最大辺の2.5倍以上の距離 & 急反転5回以上 & 最低幅60px
-    return bb >= 60 && len > bb * 2.5 && totalRev >= 5;
+    return bb >= 60 && len > bb * 1.5 && totalRev >= 3;
   };
 
   const isStrikeThrough = (pts) => {
