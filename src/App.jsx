@@ -977,12 +977,23 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
     const bw = Math.max(...xs) - Math.min(...xs);
     const bh = Math.max(...ys) - Math.min(...ys);
-    if (bw < 80 || bh > bw * 0.25) return false;
-    let rev = 0;
+
+    // 横線判定: 横幅が縦幅の4倍以上
+    const isHoriz = bw >= 80  && bh <= bw * 0.25;
+    // 縦線判定: 縦幅が横幅の4倍以上
+    const isVert  = bh >= 80  && bw <= bh * 0.25;
+    if (!isHoriz && !isVert) return false;
+
+    // 反転チェック（往復でないこと）
+    let xRev = 0, yRev = 0;
     for (let i = 2; i < pts.length; i++) {
-      if ((pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -100) rev++;
+      if ((pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -100) xRev++;
+      if ((pts[i-1].y - pts[i-2].y) * (pts[i].y - pts[i-1].y) < -100) yRev++;
     }
-    if (rev >= 2) return false;
+    if (isHoriz && xRev >= 2) return false; // 横線なのに横反転あり → スクラッチ
+    if (isVert  && yRev >= 2) return false; // 縦線なのに縦反転あり → スクラッチ
+
+    // 直線に近いか
     const dx = pts[pts.length-1].x - pts[0].x, dy = pts[pts.length-1].y - pts[0].y;
     const lineLen = Math.hypot(dx, dy);
     if (lineLen < 60) return false;
@@ -990,11 +1001,29 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     for (const pt of pts) {
       maxDist = Math.max(maxDist, Math.abs(dy * pt.x - dx * pt.y + pts[pts.length-1].x * pts[0].y - pts[pts.length-1].y * pts[0].x) / lineLen);
     }
-    return maxDist < lineLen * 0.15;
+    return maxDist < lineLen * 0.2;
   };
 
-  const getScratchArea      = (pts) => ({ x: Math.min(...pts.map(p=>p.x))-15, y: Math.min(...pts.map(p=>p.y))-25, w: Math.max(...pts.map(p=>p.x))-Math.min(...pts.map(p=>p.x))+30, h: Math.max(...pts.map(p=>p.y))-Math.min(...pts.map(p=>p.y))+50 });
-  const getStrikeThroughArea = (pts) => ({ x: Math.min(...pts.map(p=>p.x))-10, y: Math.min(...pts.map(p=>p.y))-60, w: Math.max(...pts.map(p=>p.x))-Math.min(...pts.map(p=>p.x))+20, h: Math.max(...pts.map(p=>p.y))-Math.min(...pts.map(p=>p.y))+120 });
+  const getScratchArea = (pts) => ({
+    x: Math.min(...pts.map(p=>p.x)) - 15,
+    y: Math.min(...pts.map(p=>p.y)) - 25,
+    w: Math.max(...pts.map(p=>p.x)) - Math.min(...pts.map(p=>p.x)) + 30,
+    h: Math.max(...pts.map(p=>p.y)) - Math.min(...pts.map(p=>p.y)) + 50,
+  });
+
+  const getStrikeThroughArea = (pts) => {
+    const xs = pts.map(p=>p.x), ys = pts.map(p=>p.y);
+    const bw = Math.max(...xs) - Math.min(...xs);
+    const bh = Math.max(...ys) - Math.min(...ys);
+    const isVert = bh > bw;
+    return isVert
+      ? { // 縦線: 左右に余裕、上下はぴったり
+          x: Math.min(...xs) - 60, y: Math.min(...ys) - 10,
+          w: bw + 120,             h: bh + 20 }
+      : { // 横線: 上下に余裕、左右はぴったり
+          x: Math.min(...xs) - 10, y: Math.min(...ys) - 60,
+          w: bw + 20,              h: bh + 120 };
+  };
 
   // ─── PointerEventハンドラ（MyScript方式）──────────
   const onPointerDown = (e) => {
