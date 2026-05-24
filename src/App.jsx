@@ -988,8 +988,9 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
       if (i >= 2) {
         const dx1 = pts[i-1].x - pts[i-2].x, dx2 = pts[i].x - pts[i-1].x;
         const dy1 = pts[i-1].y - pts[i-2].y, dy2 = pts[i].y - pts[i-1].y;
-        if (dx1 * dx2 < -150) xRev++; // 非常に急な反転のみ
-        if (dy1 * dy2 < -150) yRev++; // 非常に急な反転のみ
+        // 方向転換検出: 符号が変わり、かつ両方向に最低4px以上動いているもの
+        if (dx1 * dx2 < 0 && Math.abs(dx1) > 4 && Math.abs(dx2) > 4) xRev++;
+        if (dy1 * dy2 < 0 && Math.abs(dy1) > 4 && Math.abs(dy2) > 4) yRev++;
       }
     }
     const totalRev = xRev + yRev;
@@ -1012,8 +1013,10 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     // 反転チェック（往復でないこと）
     let xRev = 0, yRev = 0;
     for (let i = 2; i < pts.length; i++) {
-      if ((pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -100) xRev++;
-      if ((pts[i-1].y - pts[i-2].y) * (pts[i].y - pts[i-1].y) < -100) yRev++;
+      const sdx1 = pts[i-1].x - pts[i-2].x, sdx2 = pts[i].x - pts[i-1].x;
+      const sdy1 = pts[i-1].y - pts[i-2].y, sdy2 = pts[i].y - pts[i-1].y;
+      if (sdx1 * sdx2 < 0 && Math.abs(sdx1) > 4 && Math.abs(sdx2) > 4) xRev++;
+      if (sdy1 * sdy2 < 0 && Math.abs(sdy1) > 4 && Math.abs(sdy2) > 4) yRev++;
     }
     if (isHoriz && xRev >= 2) return false;
     if (isVert  && yRev >= 2) return false;
