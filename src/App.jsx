@@ -808,11 +808,13 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
   const isDrawing   = useRef(false);
   const strokePts   = useRef([]);      // 現在のストローク点列
   const lastPt      = useRef(null);
-  const [tool,    setTool]    = useState("pen");
-  const [color,   setColor]   = useState(DRAW_COLORS[0].v);
-  const [size,    setSize]    = useState(DRAW_SIZES[1].v);
-  const [history, setHistory] = useState([]);
-  const [canUndo, setCanUndo] = useState(false);
+  const [tool,      setTool]      = useState("pen");
+  const [color,     setColor]     = useState(DRAW_COLORS[0].v);
+  const [size,      setSize]      = useState(DRAW_SIZES[1].v);
+  const [history,   setHistory]   = useState([]);
+  const [canUndo,   setCanUndo]   = useState(false);
+  // allowedInput: "pen" = スタイラスのみ（パームリジェクション強）/ "all" = マウスも可
+  const [allowedInput, setAllowedInput] = useState("pen");
 
   // 初期化
   useEffect(() => {
@@ -925,7 +927,9 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
 
   const onPointerDown = (e) => {
     e.preventDefault();
-    if (e.pointerType === "touch" && e.isPrimary === false) return;
+    // パームリジェクション
+    if (e.pointerType === "touch") return; // タッチ（指・手のひら）は常に無視
+    if (allowedInput === "pen" && e.pointerType === "mouse") return; // penモード時はマウスも無視
     pushHistory();
     isDrawing.current = true;
     strokePts.current = [];
@@ -947,7 +951,9 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
   const onPointerMove = (e) => {
     if (!isDrawing.current) return;
     e.preventDefault();
-    if (e.pointerType === "touch" && e.isPrimary === false) return;
+    // パームリジェクション
+    if (e.pointerType === "touch") return;
+    if (allowedInput === "pen" && e.pointerType === "mouse") return;
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     const ctx    = canvasRef.current.getContext("2d");
 
@@ -1038,6 +1044,23 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
         </div>
         <div className="w-px h-5 bg-gray-700" />
         <div className="text-xs text-gray-500 hidden sm:block">乱書きで消去</div>
+        <div className="w-px h-5 bg-gray-700" />
+        {/* 入力モード切り替え */}
+        <div className="flex gap-1 items-center">
+          <span className="text-xs text-gray-500 hidden sm:block">入力:</span>
+          <button
+            className={`${cx.btn} text-xs py-1 px-2 ${allowedInput === "pen" ? cx.pri : cx.ghost}`}
+            title="Apple Pencil / スタイラスのみ（パームリジェクション最強）"
+            onPointerDown={e => { e.stopPropagation(); setAllowedInput("pen"); }}>
+            ✏ ペンのみ
+          </button>
+          <button
+            className={`${cx.btn} text-xs py-1 px-2 ${allowedInput === "all" ? "bg-blue-700 text-white" : cx.ghost}`}
+            title="マウスでも描画できます"
+            onPointerDown={e => { e.stopPropagation(); setAllowedInput("all"); }}>
+            🖱 全入力
+          </button>
+        </div>
         <div className="w-px h-5 bg-gray-700 hidden sm:block" />
         <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2 ${!canUndo ? "opacity-30" : ""}`}
           onPointerDown={e => { e.stopPropagation(); undo(); }} disabled={!canUndo}>↩ 戻す</button>
@@ -1054,8 +1077,10 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
         <canvas
           ref={canvasRef}
           width={1600} height={960}
-          style={{ width: "100%", height: "100%", objectFit: "contain", touchAction: "none",
-            cursor: tool === "eraser" ? "crosshair" : "default" }}
+          style={{ width: "100%", height: "100%", objectFit: "contain",
+            touchAction: "none",
+            WebkitTouchCallout: "none",
+            cursor: tool === "eraser" ? "crosshair" : "crosshair" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
