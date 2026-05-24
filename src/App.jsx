@@ -1003,10 +1003,10 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     const bw = Math.max(...xs) - Math.min(...xs);
     const bh = Math.max(...ys) - Math.min(...ys);
 
-    // 横線判定: 横幅が縦幅の4倍以上
-    const isHoriz = bw >= 80  && bh <= bw * 0.25;
-    // 縦線判定: 縦幅が横幅の4倍以上
-    const isVert  = bh >= 80  && bw <= bh * 0.25;
+    // 横線判定: 横幅が縦幅の6倍以上 かつ 最低200px
+    const isHoriz = bw >= 200 && bh <= bw * 0.16;
+    // 縦線判定: 縦幅が横幅の6倍以上 かつ 最低200px
+    const isVert  = bh >= 200 && bw <= bh * 0.16;
     if (!isHoriz && !isVert) return false;
 
     // 反転チェック（往復でないこと）
@@ -1015,18 +1015,18 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
       if ((pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -100) xRev++;
       if ((pts[i-1].y - pts[i-2].y) * (pts[i].y - pts[i-1].y) < -100) yRev++;
     }
-    if (isHoriz && xRev >= 2) return false; // 横線なのに横反転あり → スクラッチ
-    if (isVert  && yRev >= 2) return false; // 縦線なのに縦反転あり → スクラッチ
+    if (isHoriz && xRev >= 2) return false;
+    if (isVert  && yRev >= 2) return false;
 
-    // 直線に近いか
+    // 直線に近いか（始点→終点からのずれが10%以内）
     const dx = pts[pts.length-1].x - pts[0].x, dy = pts[pts.length-1].y - pts[0].y;
     const lineLen = Math.hypot(dx, dy);
-    if (lineLen < 60) return false;
+    if (lineLen < 150) return false;
     let maxDist = 0;
     for (const pt of pts) {
       maxDist = Math.max(maxDist, Math.abs(dy * pt.x - dx * pt.y + pts[pts.length-1].x * pts[0].y - pts[pts.length-1].y * pts[0].x) / lineLen);
     }
-    return maxDist < lineLen * 0.2;
+    return maxDist < lineLen * 0.1;
   };
 
   const getScratchArea = (pts) => ({
