@@ -14,6 +14,7 @@ const save = (d) => localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
 const createProject = (title = "新しい作品") => ({
   id: genId(), title, genre: "", status: "企画中",
   createdAt: new Date().toISOString(),
+  overview: { theme: "", antiTheme: "", remarks: "" },
   tenchiJin: { ten: "", chi: "", jin: "" },
   characters: [],
   structure: { mode: "起承転結", ki: "", sho: "", ten_: "", ketsu: "", act1: "", act2a: "", midpoint: "", act2b: "", act3: "" },
@@ -168,6 +169,7 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, 
 // PROJECT (タブ親)
 // ═══════════════════════════════════════════════════════════
 const TABS = (useEmotionCurve) => [
+  { id: "overview",     label: "📋 概要" },
   { id: "tenchiJin",    label: "☰ 天地人" },
   { id: "characters",   label: "👥 登場人物" },
   { id: "structure",    label: "📐 起承転結" },
@@ -205,6 +207,7 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
       </div>
       {/* コンテンツ */}
       <div className="p-4 overflow-y-auto" style={{ height: "calc(100vh - 108px)" }}>
+        {activeTab === "overview"     && <Overview     project={project} updateProject={updateProject} />}
         {activeTab === "tenchiJin"    && <TenchiJin    project={project} updateProject={updateProject} />}
         {activeTab === "characters"   && <Characters   project={project} updateProject={updateProject} />}
         {activeTab === "structure"    && <Structure    project={project} updateProject={updateProject} />}
@@ -218,11 +221,67 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
 }
 
 // ═══════════════════════════════════════════════════════════
+// 概要（テーマ・アンチテーマ・備考）
+// ═══════════════════════════════════════════════════════════
+function Overview({ project, updateProject }) {
+  const ov = project.overview || { theme: "", antiTheme: "", remarks: "" };
+  const set = (k, v) => updateProject(p => ({ ...p, overview: { ...(p.overview || {}), [k]: v } }));
+
+  const items = [
+    {
+      key: "theme",
+      icon: "💡",
+      label: "テーマ",
+      hint: "この作品が伝えたい核心的なメッセージ・問い・価値観",
+      placeholder: "例: 愛することは失うことへの恐怖を乗り越えることだ",
+      rows: 4,
+    },
+    {
+      key: "antiTheme",
+      icon: "⚡",
+      label: "アンチテーマ",
+      hint: "主人公が最初に信じている誤った考え方・テーマと対立する価値観",
+      placeholder: "例: 傷つくくらいなら最初から愛さない方がいい",
+      rows: 4,
+    },
+    {
+      key: "remarks",
+      icon: "📌",
+      label: "備考",
+      hint: "参考作品・企画メモ・制作上の注意点など自由に",
+      placeholder: "自由に書いてください",
+      rows: 6,
+    },
+  ];
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-4">
+      {items.map(({ key, icon, label, hint, placeholder, rows }) => (
+        <div key={key} className={cx.card}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">{icon}</span>
+            <span className="font-semibold text-white">{label}</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">{hint}</p>
+          <textarea
+            className={cx.ta} rows={rows}
+            value={ov[key] || ""}
+            onChange={e => set(key, e.target.value)}
+            placeholder={placeholder}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // 天地人
 // ═══════════════════════════════════════════════════════════
 function TenchiJin({ project, updateProject }) {
   const set = (k, v) => updateProject(p => ({ ...p, tenchiJin: { ...p.tenchiJin, [k]: v } }));
   const t = project.tenchiJin;
+  const [drawKey, setDrawKey] = useState(null); // "ten" | "chi" | "jin"
   const items = [
     { key: "ten",  icon: "☰", label: "天（テーマ）",  hint: "この作品が問いかけること・伝えたいメッセージ・核心的なテーマ", rows: 4 },
     { key: "chi",  icon: "⬡", label: "地（世界観）",  hint: "時代・舞台・社会背景・世界のルールと制約", rows: 5 },
@@ -230,6 +289,13 @@ function TenchiJin({ project, updateProject }) {
   ];
   return (
     <div className="max-w-2xl mx-auto space-y-4">
+      {drawKey && (
+        <DrawingModal
+          initialDataUrl={t[drawKey + "_drawing"] || null}
+          onSave={dataUrl => set(drawKey + "_drawing", dataUrl)}
+          onClose={() => setDrawKey(null)}
+        />
+      )}
       {items.map(({ key, icon, label, hint, rows }) => (
         <div key={key} className={cx.card}>
           <div className="flex items-center gap-2 mb-1">
@@ -239,6 +305,12 @@ function TenchiJin({ project, updateProject }) {
           <p className="text-xs text-gray-500 mb-2">{hint}</p>
           <textarea className={cx.ta} rows={rows} value={t[key]}
             onChange={e => set(key, e.target.value)} placeholder={hint} />
+          <DrawingThumb
+            dataUrl={t[key + "_drawing"] || null}
+            label="手書きメモ"
+            onEdit={() => setDrawKey(key)}
+            onClear={() => set(key + "_drawing", null)}
+          />
         </div>
       ))}
     </div>
@@ -345,6 +417,7 @@ function Characters({ project, updateProject }) {
 function Structure({ project, updateProject }) {
   const st = project.structure;
   const set = (k, v) => updateProject(p => ({ ...p, structure: { ...p.structure, [k]: v } }));
+  const [drawKey, setDrawKey] = useState(null);
 
   const KSKT = [
     { k: "ki",    label: "起", hint: "状況設定・主人公の日常・世界の提示" },
@@ -363,6 +436,13 @@ function Structure({ project, updateProject }) {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {drawKey && (
+        <DrawingModal
+          initialDataUrl={st[drawKey + "_drawing"] || null}
+          onSave={dataUrl => set(drawKey + "_drawing", dataUrl)}
+          onClose={() => setDrawKey(null)}
+        />
+      )}
       <div className="flex gap-2 mb-4">
         {["起承転結", "三幕構成"].map(m => (
           <button key={m} className={`${cx.btn} ${st.mode === m ? cx.pri : cx.ghost}`}
@@ -378,6 +458,12 @@ function Structure({ project, updateProject }) {
             </div>
             <textarea className={cx.ta} rows={4} value={st[k] || ""}
               onChange={e => set(k, e.target.value)} placeholder={hint} />
+            <DrawingThumb
+              dataUrl={st[k + "_drawing"] || null}
+              label="手書きメモ"
+              onEdit={() => setDrawKey(k)}
+              onClear={() => set(k + "_drawing", null)}
+            />
           </div>
         ))}
       </div>
@@ -394,6 +480,8 @@ function Hakogaki({ project, updateProject }) {
   const [openEps,  setOpenEps]  = useState({});
   const [editing,  setEditing]  = useState(null); // { actId, epId|null, sceneId }
   const [sceneDrawing, setSceneDrawing] = useState(null); // { actId, epId, sceneId }
+  const [actDrawing,   setActDrawing]   = useState(null); // actId
+  const [epDrawing,    setEpDrawing]    = useState(null); // { actId, epId }
 
   const setHk = (val) => updateProject(p => ({ ...p, hakogaki: val }));
   const updAct = (actId, fn) => setHk({ ...hk, acts: hk.acts.map(a => a.id === actId ? fn(a) : a) });
@@ -473,6 +561,31 @@ function Hakogaki({ project, updateProject }) {
         <button className={`${cx.btn} ${cx.ghost} text-xs`} onClick={addAct}>＋ 幕を追加</button>
       </div>
 
+      {/* 手書きモーダル — 幕 */}
+      {actDrawing && (() => {
+        const act = hk.acts.find(a => a.id === actDrawing);
+        return (
+          <DrawingModal
+            initialDataUrl={act?.drawingDataUrl || null}
+            onSave={dataUrl => updAct(actDrawing, a => ({ ...a, drawingDataUrl: dataUrl }))}
+            onClose={() => setActDrawing(null)}
+          />
+        );
+      })()}
+      {/* 手書きモーダル — エピソード */}
+      {epDrawing && (() => {
+        const act = hk.acts.find(a => a.id === epDrawing.actId);
+        const ep  = act?.episodes.find(e => e.id === epDrawing.epId);
+        return (
+          <DrawingModal
+            initialDataUrl={ep?.drawingDataUrl || null}
+            onSave={dataUrl => updAct(epDrawing.actId, a => ({
+              ...a, episodes: a.episodes.map(e => e.id === epDrawing.epId ? { ...e, drawingDataUrl: dataUrl } : e)
+            }))}
+            onClose={() => setEpDrawing(null)}
+          />
+        );
+      })()}
       {/* 幕リスト */}
       <div className="space-y-3">
         {hk.acts.map(act => (
@@ -489,6 +602,8 @@ function Hakogaki({ project, updateProject }) {
                   <button className={`${cx.btn} ${cx.ghost} text-xs py-0.5 px-2`} onClick={() => addEp(act.id)}>＋ EP</button>
                 )}
                 <button className={`${cx.btn} ${cx.ghost} text-xs py-0.5 px-2`} onClick={() => addScene(act.id, null)}>＋ シーン</button>
+                <button title="手書きメモ" className={`${cx.btn} ${act.drawingDataUrl ? "text-amber-400 border-amber-800" : cx.ghost} text-xs py-0.5 px-2`}
+                  onClick={() => setActDrawing(act.id)}>✏</button>
                 <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0.5`} onClick={() => delAct(act.id)}>✕</button>
               </div>
             </div>
@@ -505,6 +620,8 @@ function Hakogaki({ project, updateProject }) {
                       <input className="bg-transparent text-sm text-purple-300 flex-1 focus:outline-none"
                         value={ep.name} onChange={e => renameEp(act.id, ep.id, e.target.value)} />
                       <button className={`${cx.btn} ${cx.ghost} text-xs py-0 px-2`} onClick={() => addScene(act.id, ep.id)}>＋ シーン</button>
+                      <button title="手書きメモ" className={`${cx.btn} ${ep.drawingDataUrl ? "text-amber-400 border-amber-800" : cx.ghost} text-xs py-0 px-2`}
+                        onClick={() => setEpDrawing({ actId: act.id, epId: ep.id })}>✏</button>
                       <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0`} onClick={() => delEp(act.id, ep.id)}>✕</button>
                     </div>
                     {openEps[ep.id] !== false && (
@@ -1448,7 +1565,7 @@ export default function App() {
     setData(prev => ({ ...prev, projects: prev.projects.map(p => p.id === currentId ? fn(p) : p) }));
   }, [currentId]);
 
-  const openProject = (id) => { setCurrentId(id); setActiveTab("tenchiJin"); };
+  const openProject = (id) => { setCurrentId(id); setActiveTab("overview"); };
 
   if (!authReady) {
     return (
