@@ -54,7 +54,7 @@ const createProject = (title = "新しい作品") => ({
   notes: [],
   sketches: [],
 });
-const createCharacter = () => ({ id: genId(), name: "", age: "", role: "主要", appearance: "", personality: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "" });
+const createCharacter = () => ({ id: genId(), name: "", age: "", role: "主要", appearance: "", personality: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "", drawingDataUrl: null });
 const createScene    = () => ({ id: genId(), location: "", time: "昼", characters: "", content: "", purpose: "", type: "daily", emotion: 0, drawingDataUrl: null });
 const createSketch   = (title = "") => ({ id: genId(), title, drawingDataUrl: null, createdAt: new Date().toISOString() });
 const createEpisode = (n = 1) => ({ id: genId(), name: `エピソード${n}`, scenes: [] });
@@ -188,6 +188,13 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, 
           </div>
         )}
       </div>
+
+      {/* フッター */}
+      <footer className="mt-auto border-t border-gray-800 py-4 text-center">
+        <p className="text-xs text-gray-600">
+          © {new Date().getFullYear()} scenario-koubo
+        </p>
+      </footer>
     </div>
   );
 }
@@ -309,7 +316,8 @@ function TenchiJin({ project, updateProject }) {
 // 登場人物
 // ═══════════════════════════════════════════════════════════
 function Characters({ project, updateProject }) {
-  const [editId, setEditId] = useState(null);
+  const [editId,    setEditId]    = useState(null);
+  const [charDrawId, setCharDrawId] = useState(null);
 
   const add = () => {
     const c = createCharacter();
@@ -357,6 +365,11 @@ function Characters({ project, updateProject }) {
                 <span>{c.arcEnd || "―"}</span>
               </div>
             )}
+            {c.drawingDataUrl && (
+              <div className="mt-2 rounded overflow-hidden border border-gray-700">
+                <img src={c.drawingDataUrl} alt="スケッチ" className="w-full object-contain max-h-20 bg-gray-900" />
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -392,6 +405,17 @@ function Characters({ project, updateProject }) {
                 )}
               </div>
             ))}
+            <div className="col-span-2">
+              <DrawSection
+                label="ラフスケッチ" rows={4}
+                hint="外見・服装・イメージボードなど自由に"
+                textValue=""
+                onTextChange={() => {}}
+                drawDataUrl={editing.drawingDataUrl}
+                onDrawSave={dataUrl => setC(editing.id, "drawingDataUrl", dataUrl)}
+                onDrawClear={() => setC(editing.id, "drawingDataUrl", null)}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1545,7 +1569,13 @@ function Notes({ project, updateProject }) {
               <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0 flex-shrink-0`}
                 onClick={e => { e.stopPropagation(); del(n.id); }}>✕</button>
             </div>
-            {n.content && <p className="text-xs text-gray-400 line-clamp-3 whitespace-pre-wrap">{n.content}</p>}
+            {n.drawingDataUrl ? (
+              <div className="mt-1 rounded overflow-hidden border border-gray-700">
+                <img src={n.drawingDataUrl} alt="手書きメモ" className="w-full object-contain max-h-28 bg-gray-900" />
+              </div>
+            ) : (
+              n.content && <p className="text-xs text-gray-400 line-clamp-3 whitespace-pre-wrap">{n.content}</p>
+            )}
             <div className="flex gap-1 mt-2 flex-wrap">
               {n.tags.map(t => <span key={t} className={`${cx.badge} bg-gray-800 text-gray-400`}>{t}</span>)}
             </div>
@@ -1569,32 +1599,23 @@ function Notes({ project, updateProject }) {
               <input className={cx.input} value={editing.title} placeholder="メモのタイトル"
                 onChange={e => setN(editing.id, "title", e.target.value)} />
             </div>
-            <div>
-              <label className={cx.lbl}>内容</label>
-              <textarea className={cx.ta} rows={8} value={editing.content} placeholder="自由に書いてください"
-                onChange={e => setN(editing.id, "content", e.target.value)} />
-            </div>
+            <DrawSection
+              label="内容" hint="自由に書いてください" rows={8}
+              placeholder="自由に書いてください"
+              textValue={editing.content}
+              onTextChange={v => setN(editing.id, "content", v)}
+              drawDataUrl={editing.drawingDataUrl}
+              onDrawSave={dataUrl => setN(editing.id, "drawingDataUrl", dataUrl)}
+              onDrawClear={() => setN(editing.id, "drawingDataUrl", null)}
+            />
             <div>
               <label className={cx.lbl}>タグ（カンマ区切り）</label>
               <input className={cx.input} placeholder="例: 世界観, 用語集, リサーチ"
                 value={editing.tags.join(", ")}
                 onChange={e => setN(editing.id, "tags", e.target.value.split(",").map(t => t.trim()).filter(Boolean))} />
             </div>
-            <DrawingThumb
-              dataUrl={editing.drawingDataUrl}
-              label="手書きメモ"
-              onEdit={() => setNoteDrawId(editing.id)}
-              onClear={() => setN(editing.id, "drawingDataUrl", null)}
-            />
           </div>
         </div>
-      )}
-      {noteDrawId && (
-        <DrawingModal
-          initialDataUrl={(project.notes.find(n => n.id === noteDrawId) || {}).drawingDataUrl}
-          onSave={dataUrl => setN(noteDrawId, "drawingDataUrl", dataUrl)}
-          onClose={() => setNoteDrawId(null)}
-        />
       )}
     </div>
   );
