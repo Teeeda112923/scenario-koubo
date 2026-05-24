@@ -486,9 +486,9 @@ function Hakogaki({ project, updateProject }) {
   const editSc = getEditSc();
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="w-full">
       {/* オプション行 */}
-      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
         <div className="flex flex-wrap gap-4">
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
             <input type="checkbox" checked={hk.useEpisode} onChange={() => setHk({ ...hk, useEpisode: !hk.useEpisode })}
@@ -529,8 +529,10 @@ function Hakogaki({ project, updateProject }) {
           />
         );
       })()}
-      {/* 幕リスト */}
-      <div className="space-y-3">
+      {/* 左右分割レイアウト */}
+      <div className="flex gap-3" style={{ minHeight: "60vh" }}>
+        {/* 左：幕リスト */}
+        <div className="w-2/5 flex-shrink-0 space-y-2 overflow-y-auto">
         {hk.acts.map(act => (
           <div key={act.id} className="border border-gray-800 rounded-lg overflow-hidden">
             {/* 幕ヘッダー */}
@@ -593,16 +595,17 @@ function Hakogaki({ project, updateProject }) {
             )}
           </div>
         ))}
-      </div>
+        </div>{/* 左パネル終わり */}
 
-      {/* シーン編集パネル */}
-      {editSc && editing && (
-        <div className={`${cx.card} mt-4`}>
-          <div className="flex justify-between items-center mb-3">
-            <span className="font-semibold text-amber-400 text-sm">シーン編集</span>
-            <button className="text-gray-500 hover:text-white text-xs" onClick={() => setEditing(null)}>✕ 閉じる</button>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+        {/* 右：シーン編集パネル */}
+        <div className="flex-1 overflow-y-auto">
+          {editSc && editing ? (
+            <div className={cx.card}>
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-semibold text-amber-400 text-sm">シーン編集</span>
+                <button className="text-gray-500 hover:text-white text-xs" onClick={() => setEditing(null)}>✕ 閉じる</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={cx.lbl}>場所</label>
               <input className={cx.input} value={editSc.location} placeholder="例: 主人公の部屋"
@@ -659,9 +662,16 @@ function Hakogaki({ project, updateProject }) {
               </div>
             )}
 
-          </div>
-        </div>
-      )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-gray-600 border border-dashed border-gray-800 rounded-lg">
+              <div className="text-4xl mb-3">👆</div>
+              <p className="text-sm">左のシーンをタップして編集</p>
+            </div>
+          )}
+        </div>{/* 右パネル終わり */}
+      </div>{/* 左右分割終わり */}
       {sceneDrawing && (() => {
         const act = hk.acts.find(a => a.id === sceneDrawing.actId);
         const pool = sceneDrawing.epId
@@ -794,14 +804,15 @@ const DRAW_SIZES = [
 const BG_COLOR = "#111827";
 
 function DrawingModal({ initialDataUrl, onSave, onClose }) {
-  const canvasRef  = useRef(null);
-  const isDrawing  = useRef(false);
-  const lastPt     = useRef(null);
-  const [tool,     setTool]     = useState("pen");
-  const [color,    setColor]    = useState(DRAW_COLORS[0].v);
-  const [size,     setSize]     = useState(DRAW_SIZES[1].v);
-  const [history,  setHistory]  = useState([]);
-  const [canUndo,  setCanUndo]  = useState(false);
+  const canvasRef   = useRef(null);
+  const isDrawing   = useRef(false);
+  const strokePts   = useRef([]);      // 現在のストローク点列
+  const lastPt      = useRef(null);
+  const [tool,    setTool]    = useState("pen");
+  const [color,   setColor]   = useState(DRAW_COLORS[0].v);
+  const [size,    setSize]    = useState(DRAW_SIZES[1].v);
+  const [history, setHistory] = useState([]);
+  const [canUndo, setCanUndo] = useState(false);
 
   // 初期化
   useEffect(() => {
@@ -821,7 +832,7 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const snap = canvas.toDataURL("image/jpeg", 0.6);
-    setHistory(h => { const next = [...h.slice(-15), snap]; setCanUndo(next.length > 0); return next; });
+    setHistory(h => { const next = [...h.slice(-20), snap]; setCanUndo(next.length > 0); return next; });
   };
 
   const undo = () => {
@@ -837,13 +848,11 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
 
   const clear = () => {
     pushHistory();
-    const canvas = canvasRef.current;
-    const ctx    = canvas.getContext("2d");
+    const ctx = canvasRef.current.getContext("2d");
     ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
   };
 
-  // ポインター座標をキャンバス座標へ変換
   const toCanvasXY = (e) => {
     const canvas = canvasRef.current;
     const rect   = canvas.getBoundingClientRect();
@@ -856,21 +865,83 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     };
   };
 
+  // ベジェ曲線で滑らかに描画
+  const drawSmoothStroke = (pts, col, lw) => {
+    if (pts.length < 2) return;
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = lw;
+    ctx.lineCap     = "round";
+    ctx.lineJoin    = "round";
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 2) {
+      ctx.lineTo(pts[1].x, pts[1].y);
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2;
+        const my = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      const last = pts[pts.length - 1];
+      ctx.lineTo(last.x, last.y);
+    }
+    ctx.stroke();
+  };
+
+  // スクラッチ消去判定（Nebo風：急激な往復運動 = 消去）
+  const isScratch = (pts) => {
+    if (pts.length < 8) return false;
+    // バウンディングボックス
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const bw = Math.max(...xs) - Math.min(...xs);
+    const bh = Math.max(...ys) - Math.min(...ys);
+    const len = Math.sqrt(pts.reduce((s, p, i) => {
+      if (i === 0) return 0;
+      return s + Math.hypot(p.x - pts[i-1].x, p.y - pts[i-1].y);
+    }, 0));
+    // 方向反転回数
+    let reversals = 0;
+    for (let i = 2; i < pts.length; i++) {
+      const dx1 = pts[i-1].x - pts[i-2].x;
+      const dx2 = pts[i].x   - pts[i-1].x;
+      if (dx1 * dx2 < -50) reversals++;
+    }
+    // ストローク長がBBの幅の2倍以上、反転が4回以上、縦幅が横幅より小さい
+    return len > bw * 2 && reversals >= 4 && bh < bw * 0.8;
+  };
+
+  // スクラッチ消去の実行
+  const applyScratch = (pts) => {
+    const canvas = canvasRef.current;
+    const ctx    = canvas.getContext("2d");
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const x1 = Math.min(...xs) - 10, y1 = Math.min(...ys) - 20;
+    const w  = Math.max(...xs) - x1 + 10;
+    const h  = Math.max(...ys) - y1 + 20;
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(x1, y1, w, h);
+  };
+
   const onPointerDown = (e) => {
     e.preventDefault();
-    // スタイラス以外の2本指タッチはスクロール扱いにする
     if (e.pointerType === "touch" && e.isPrimary === false) return;
     pushHistory();
     isDrawing.current = true;
+    strokePts.current = [];
     canvasRef.current.setPointerCapture(e.pointerId);
-    const pt  = toCanvasXY(e);
+    const pt = toCanvasXY(e);
     lastPt.current = pt;
-    const ctx = canvasRef.current.getContext("2d");
-    ctx.beginPath();
-    const r = (tool === "eraser" ? size * 4 : size * (0.4 + pt.pressure * 1.2)) / 2;
-    ctx.arc(pt.x, pt.y, Math.max(r, 1), 0, Math.PI * 2);
-    ctx.fillStyle = tool === "eraser" ? BG_COLOR : color;
-    ctx.fill();
+    strokePts.current.push(pt);
+    // 最初の点を描く
+    if (tool !== "eraser") {
+      const ctx = canvasRef.current.getContext("2d");
+      const r = size * (0.3 + pt.pressure * 1.0);
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, Math.max(r / 2, 1), 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
   };
 
   const onPointerMove = (e) => {
@@ -879,28 +950,53 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     if (e.pointerType === "touch" && e.isPrimary === false) return;
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     const ctx    = canvasRef.current.getContext("2d");
+
     for (const ev of events) {
       const pt       = toCanvasXY(ev);
       const pressure = ev.pressure > 0 ? ev.pressure : 0.5;
-      const lw       = tool === "eraser"
-        ? size * 7
-        : size * (0.4 + pressure * 1.6);
-      ctx.beginPath();
-      ctx.moveTo(lastPt.current.x, lastPt.current.y);
-      ctx.lineTo(pt.x, pt.y);
-      ctx.strokeStyle  = tool === "eraser" ? BG_COLOR : color;
-      ctx.lineWidth    = Math.max(lw, 1);
-      ctx.lineCap      = "round";
-      ctx.lineJoin     = "round";
-      ctx.stroke();
+      strokePts.current.push(pt);
+
+      if (tool === "eraser") {
+        const lw = size * 8;
+        ctx.beginPath();
+        ctx.moveTo(lastPt.current.x, lastPt.current.y);
+        ctx.lineTo(pt.x, pt.y);
+        ctx.strokeStyle = BG_COLOR;
+        ctx.lineWidth   = Math.max(lw, 4);
+        ctx.lineCap     = "round";
+        ctx.stroke();
+      } else {
+        // ベジェ曲線スムージング（直近3点でリアルタイム描画）
+        const pts = strokePts.current;
+        const n = pts.length;
+        if (n >= 3) {
+          const lw = size * (0.3 + pressure * 1.7);
+          const segment = pts.slice(n - 3);
+          // 前の点を少し上書きして滑らかに
+          ctx.globalCompositeOperation = "source-over";
+          drawSmoothStroke(segment, color, Math.max(lw, 1));
+        }
+      }
       lastPt.current = pt;
     }
   };
 
-  const onPointerUp = () => { isDrawing.current = false; lastPt.current = null; };
+  const onPointerUp = () => {
+    if (!isDrawing.current) return;
+    isDrawing.current = false;
+    const pts = strokePts.current;
+
+    // スクラッチ消去判定
+    if (tool === "pen" && isScratch(pts)) {
+      // historyの最後（現在）をundo（スクラッチ前に戻す）してから消去
+      applyScratch(pts);
+    }
+    strokePts.current = [];
+    lastPt.current    = null;
+  };
 
   const handleSave = () => {
-    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.72);
+    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.8);
     onSave(dataUrl);
     onClose();
   };
@@ -919,9 +1015,7 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
             </button>
           ))}
         </div>
-
         <div className="w-px h-5 bg-gray-700" />
-
         {/* カラー */}
         <div className="flex gap-1">
           {DRAW_COLORS.map(c => (
@@ -931,9 +1025,7 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
               onPointerDown={e => { e.stopPropagation(); setColor(c.v); setTool("pen"); }} />
           ))}
         </div>
-
         <div className="w-px h-5 bg-gray-700" />
-
         {/* サイズ */}
         <div className="flex gap-1">
           {DRAW_SIZES.map(s => (
@@ -944,30 +1036,26 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
             </button>
           ))}
         </div>
-
         <div className="w-px h-5 bg-gray-700" />
-
-        {/* Undo / Clear */}
+        <div className="text-xs text-gray-500 hidden sm:block">乱書きで消去</div>
+        <div className="w-px h-5 bg-gray-700 hidden sm:block" />
         <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2 ${!canUndo ? "opacity-30" : ""}`}
           onPointerDown={e => { e.stopPropagation(); undo(); }} disabled={!canUndo}>↩ 戻す</button>
         <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`}
           onPointerDown={e => { e.stopPropagation(); clear(); }}>🗑 全消し</button>
-
         <div className="flex-1" />
-
-        {/* Save / Cancel */}
         <button className={`${cx.btn} ${cx.ghost} text-xs`}
           onPointerDown={e => { e.stopPropagation(); onClose(); }}>キャンセル</button>
         <button className={`${cx.btn} ${cx.pri} text-xs`}
           onPointerDown={e => { e.stopPropagation(); handleSave(); }}>💾 保存</button>
       </div>
-
       {/* キャンバス */}
       <div className="flex-1 overflow-hidden flex items-center justify-center bg-gray-950 p-2">
         <canvas
           ref={canvasRef}
           width={1600} height={960}
-          style={{ width: "100%", height: "100%", objectFit: "contain", touchAction: "none", cursor: tool === "eraser" ? "crosshair" : "default" }}
+          style={{ width: "100%", height: "100%", objectFit: "contain", touchAction: "none",
+            cursor: tool === "eraser" ? "crosshair" : "default" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -1618,4 +1706,3 @@ export default function App() {
     </>
   );
 }
-
