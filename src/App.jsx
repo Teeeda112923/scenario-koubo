@@ -804,17 +804,15 @@ const DRAW_SIZES = [
 const BG_COLOR = "#111827";
 
 function DrawingModal({ initialDataUrl, onSave, onClose }) {
-  const canvasRef   = useRef(null);
-  const isDrawing   = useRef(false);
-  const strokePts   = useRef([]);      // 現在のストローク点列
-  const lastPt      = useRef(null);
-  const [tool,      setTool]      = useState("pen");
-  const [color,     setColor]     = useState(DRAW_COLORS[0].v);
-  const [size,      setSize]      = useState(DRAW_SIZES[1].v);
-  const [history,   setHistory]   = useState([]);
-  const [canUndo,   setCanUndo]   = useState(false);
-  // allowedInput: "pen" = スタイラスのみ（パームリジェクション強）/ "all" = マウスも可
-  const [allowedInput, setAllowedInput] = useState("pen");
+  const canvasRef        = useRef(null);
+  const isDrawing        = useRef(false);
+  const capturedPtrType  = useRef(null);  // MyScript方式: 最初のpointerTypeをロック
+  const strokePts        = useRef([]);
+  const [tool,         setTool]         = useState("pen");
+  const [color,        setColor]        = useState(DRAW_COLORS[0].v);
+  const [size,         setSize]         = useState(DRAW_SIZES[1].v);
+  const [history,      setHistory]      = useState([]);
+  const [canUndo,      setCanUndo]      = useState(false);
 
   // 初期化
   useEffect(() => {
@@ -831,21 +829,25 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
   }, []);
 
   const pushHistory = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const snap = canvas.toDataURL("image/jpeg", 0.6);
-    setHistory(h => { const next = [...h.slice(-20), snap]; setCanUndo(next.length > 0); return next; });
+    const snap = canvasRef.current.toDataURL("image/jpeg", 0.6);
+    setHistory(h => { const n = [...h.slice(-20), snap]; setCanUndo(n.length > 0); return n; });
   };
 
   const undo = () => {
-    if (history.length === 0) return;
-    const canvas = canvasRef.current;
-    const ctx    = canvas.getContext("2d");
-    const prev   = history[history.length - 1];
-    setHistory(h => { const next = h.slice(0, -1); setCanUndo(next.length > 0); return next; });
-    const img = new Image();
-    img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0); };
-    img.src = prev;
+    setHistory(h => {
+      if (!h.length) return h;
+      const prev = h[h.length - 1];
+      const next = h.slice(0, -1);
+      setCanUndo(next.length > 0);
+      const img = new Image();
+      img.onload = () => {
+        const ctx = canvasRef.current.getContext("2d");
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        ctx.drawImage(img, 0, 0);
+      };
+      img.src = prev;
+      return next;
+    });
   };
 
   const clear = () => {
@@ -855,174 +857,257 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
   };
 
-  const toCanvasXY = (e) => {
-    const canvas = canvasRef.current;
-    const rect   = canvas.getBoundingClientRect();
-    const sx = canvas.width  / rect.width;
-    const sy = canvas.height / rect.height;
+  const toXY = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const sx = canvasRef.current.width  / rect.width;
+    const sy = canvasRef.current.height / rect.height;
     return {
       x: (e.clientX - rect.left) * sx,
       y: (e.clientY - rect.top)  * sy,
-      pressure: e.pressure > 0 ? e.pressure : 0.5,
+      p: Math.max(e.pressure > 0 ? e.pressure : 0.5, 0.1),
+      t: Date.now(),
     };
   };
 
-  // ベジェ曲線で滑らかに描画
-  const drawSmoothStroke = (pts, col, lw) => {
-    if (pts.length < 2) return;
-    const ctx = canvasRef.current.getContext("2d");
-    ctx.beginPath();
-    ctx.strokeStyle = col;
-    ctx.lineWidth   = lw;
-    ctx.lineCap     = "round";
-    ctx.lineJoin    = "round";
-    ctx.moveTo(pts[0].x, pts[0].y);
-    if (pts.length === 2) {
-      ctx.lineTo(pts[1].x, pts[1].y);
-    } else {
-      for (let i = 1; i < pts.length - 1; i++) {
-        const mx = (pts[i].x + pts[i + 1].x) / 2;
-        const my = (pts[i].y + pts[i + 1].y) / 2;
-        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-      }
-      const last = pts[pts.length - 1];
-      ctx.lineTo(last.x, last.y);
-    }
-    ctx.stroke();
+  // ─── MyScript方式のストローク描画 ───────────────────────
+  // 参考: iinkTS CanvasRendererStroke.ts
+  const angleAxe = (p1, p2) => Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
+  const linkPts = (pt, angle, width) => {
+    const r = pt.p * width;
+    return [
+      { x: pt.x - Math.sin(angle) * r, y: pt.y + Math.cos(angle) * r },
+      { x: pt.x + Math.sin(angle) * r, y: pt.y - Math.cos(angle) * r },
+    ];
   };
 
-  // スクラッチ消去判定（Nebo風：急激な往復運動 = 消去）
+  const midPt = (p1, p2) => ({
+    x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2,
+    p: (p1.p + p2.p) / 2, t: (p1.t + p2.t) / 2,
+  });
+
+  const drawStroke = (pts, col, width) => {
+    if (!pts.length) return;
+    const ctx = canvasRef.current.getContext("2d");
+    const n = pts.length;
+    ctx.save();
+    ctx.beginPath();
+    ctx.fillStyle = col;
+
+    if (n < 3) {
+      // 点または短い線：円で描く
+      ctx.arc(pts[0].x, pts[0].y, width * (pts[0].p || 0.5), 0, Math.PI * 2, true);
+    } else {
+      // MyScript方式: fill-basedの可変幅ストローク
+      const p0 = pts[0];
+      ctx.arc(p0.x, p0.y, width * p0.p, 0, Math.PI * 2, true);
+
+      const seg2 = midPt(pts[0], pts[1]);
+      const lk0  = linkPts(pts[0], angleAxe(pts[0], seg2), width);
+      const lk2  = linkPts(seg2,   angleAxe(pts[0], seg2), width);
+      ctx.moveTo(lk0[0].x, lk0[0].y);
+      ctx.lineTo(lk2[0].x, lk2[0].y);
+      ctx.lineTo(lk2[1].x, lk2[1].y);
+      ctx.lineTo(lk0[1].x, lk0[1].y);
+
+      for (let i = 0; i < n - 2; i++) {
+        const begin = midPt(pts[i],   pts[i+1]);
+        const end   = midPt(pts[i+1], pts[i+2]);
+        const ctrl  = pts[i+1];
+        const l1 = linkPts(begin, angleAxe(begin, ctrl), width);
+        const l2 = linkPts(end,   angleAxe(ctrl,  end),  width);
+        const l3 = linkPts(ctrl,  angleAxe(begin, end),  width);
+        ctx.moveTo(l1[0].x, l1[0].y);
+        ctx.quadraticCurveTo(l3[0].x, l3[0].y, l2[0].x, l2[0].y);
+        ctx.lineTo(l2[1].x, l2[1].y);
+        ctx.quadraticCurveTo(l3[1].x, l3[1].y, l1[1].x, l1[1].y);
+      }
+
+      const bl  = midPt(pts[n-2], pts[n-1]);
+      const lkb = linkPts(bl,      angleAxe(pts[n-2], pts[n-1]), width);
+      const lke = linkPts(pts[n-1],angleAxe(pts[n-2], pts[n-1]), width);
+      ctx.moveTo(lkb[0].x, lkb[0].y);
+      ctx.lineTo(lke[0].x, lke[0].y);
+      ctx.lineTo(lke[1].x, lke[1].y);
+      ctx.lineTo(lkb[1].x, lkb[1].y);
+
+      // 終端の丸め
+      const ARCSPLIT = 6;
+      const angle = angleAxe(pts[n-2], pts[n-1]);
+      const lkf = linkPts(pts[n-1], angle, width);
+      ctx.moveTo(lkf[0].x, lkf[0].y);
+      for (let i = 1; i <= ARCSPLIT; i++) {
+        const na = angle - (i * Math.PI / ARCSPLIT);
+        ctx.lineTo(
+          pts[n-1].x - pts[n-1].p * width * Math.sin(na),
+          pts[n-1].y + pts[n-1].p * width * Math.cos(na)
+        );
+      }
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // ─── スクラッチ消去（往復ジェスチャー検出）────────────
   const isScratch = (pts) => {
     if (pts.length < 8) return false;
-    // バウンディングボックス
-    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const xs = pts.map(p => p.x);
     const bw = Math.max(...xs) - Math.min(...xs);
-    const bh = Math.max(...ys) - Math.min(...ys);
-    const len = Math.sqrt(pts.reduce((s, p, i) => {
-      if (i === 0) return 0;
-      return s + Math.hypot(p.x - pts[i-1].x, p.y - pts[i-1].y);
-    }, 0));
-    // 方向反転回数
+    const bh = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
+    let totalLen = 0, reversals = 0;
+    for (let i = 1; i < pts.length; i++) {
+      totalLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+      if (i >= 2) {
+        const dx1 = pts[i-1].x - pts[i-2].x;
+        const dx2 = pts[i].x   - pts[i-1].x;
+        if (dx1 * dx2 < -80) reversals++;
+      }
+    }
+    return totalLen > bw * 2.2 && reversals >= 4 && bh < bw * 0.85;
+  };
+
+  const applyScratch = (pts) => {
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const x1 = Math.min(...xs) - 15, y1 = Math.min(...ys) - 25;
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(x1, y1, Math.max(...xs) - x1 + 15, Math.max(...ys) - y1 + 25);
+  };
+
+  // ─── ストライクスルー消去（一本横線で消去）────────────
+  // MyScript iink: "strike it through" ジェスチャー
+  const isStrikeThrough = (pts) => {
+    if (pts.length < 4) return false;
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const bw = Math.max(...xs) - Math.min(...xs); // 横幅
+    const bh = Math.max(...ys) - Math.min(...ys); // 縦幅
+
+    // 横幅が縦幅の4倍以上 → 水平に近い一本線
+    if (bw < 100 || bh > bw * 0.25) return false;
+
+    // 方向反転がほぼない（往復でない）
     let reversals = 0;
     for (let i = 2; i < pts.length; i++) {
       const dx1 = pts[i-1].x - pts[i-2].x;
       const dx2 = pts[i].x   - pts[i-1].x;
-      if (dx1 * dx2 < -50) reversals++;
+      if (dx1 * dx2 < -100) reversals++;
     }
-    // ストローク長がBBの幅の2倍以上、反転が4回以上、縦幅が横幅より小さい
-    return len > bw * 2 && reversals >= 4 && bh < bw * 0.8;
+    if (reversals >= 2) return false; // 往復ならスクラッチ
+
+    // 始点から終点への直線からのズレが小さい（直線に近い）
+    const startX = pts[0].x, startY = pts[0].y;
+    const endX = pts[pts.length-1].x, endY = pts[pts.length-1].y;
+    const dx = endX - startX, dy = endY - startY;
+    const lineLen = Math.hypot(dx, dy);
+    if (lineLen < 80) return false;
+
+    // 各点の直線からの距離の最大値を確認
+    let maxDist = 0;
+    for (const pt of pts) {
+      const dist = Math.abs(dy * pt.x - dx * pt.y + endX * startY - endY * startX) / lineLen;
+      maxDist = Math.max(maxDist, dist);
+    }
+    // 直線からのズレが線長の15%以内
+    return maxDist < lineLen * 0.15;
   };
 
-  // スクラッチ消去の実行
-  const applyScratch = (pts) => {
-    const canvas = canvasRef.current;
-    const ctx    = canvas.getContext("2d");
+  const applyStrikeThrough = (pts) => {
+    // 線が通った範囲（縦方向に余裕を持たせて）を消去
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    const x1 = Math.min(...xs) - 10, y1 = Math.min(...ys) - 20;
+    const ctx = canvasRef.current.getContext("2d");
+    const x1 = Math.min(...xs) - 10;
+    const y1 = Math.min(...ys) - 40; // 線の上下40pxを消去
     const w  = Math.max(...xs) - x1 + 10;
-    const h  = Math.max(...ys) - y1 + 20;
+    const h  = Math.max(...ys) - y1 + 40;
     ctx.fillStyle = BG_COLOR;
     ctx.fillRect(x1, y1, w, h);
   };
 
+  // ─── PointerEventハンドラ（MyScript方式パームリジェクション）───
   const onPointerDown = (e) => {
     e.preventDefault();
-    // パームリジェクション
-    if (e.pointerType === "touch") return; // タッチ（指・手のひら）は常に無視
-    if (allowedInput === "pen" && e.pointerType === "mouse") return; // penモード時はマウスも無視
-    pushHistory();
+    // MyScript方式: touchは完全に無視。最初のpointerTypeをロック
+    if (e.pointerType === "touch") return;
+    if (e.button !== 0 || e.buttons !== 1) return;  // 左ボタン以外を無視
+
+    capturedPtrType.current = e.pointerType;  // ← ここがポイント
     isDrawing.current = true;
     strokePts.current = [];
     canvasRef.current.setPointerCapture(e.pointerId);
-    const pt = toCanvasXY(e);
-    lastPt.current = pt;
+    pushHistory();
+
+    const pt = toXY(e);
     strokePts.current.push(pt);
-    // 最初の点を描く
     if (tool !== "eraser") {
-      const ctx = canvasRef.current.getContext("2d");
-      const r = size * (0.3 + pt.pressure * 1.0);
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, Math.max(r / 2, 1), 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
+      drawStroke([pt], color, size * 2);
     }
   };
 
   const onPointerMove = (e) => {
     if (!isDrawing.current) return;
     e.preventDefault();
-    // パームリジェクション
-    if (e.pointerType === "touch") return;
-    if (allowedInput === "pen" && e.pointerType === "mouse") return;
-    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-    const ctx    = canvasRef.current.getContext("2d");
+    // MyScript方式: 最初のpointerTypeと異なるイベントは全て無視
+    if (e.pointerType !== capturedPtrType.current) return;
 
+    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const ev of events) {
-      const pt       = toCanvasXY(ev);
-      const pressure = ev.pressure > 0 ? ev.pressure : 0.5;
+      const pt = toXY(ev);
       strokePts.current.push(pt);
 
       if (tool === "eraser") {
-        const lw = size * 8;
+        const ctx = canvasRef.current.getContext("2d");
+        ctx.fillStyle = BG_COLOR;
         ctx.beginPath();
-        ctx.moveTo(lastPt.current.x, lastPt.current.y);
-        ctx.lineTo(pt.x, pt.y);
-        ctx.strokeStyle = BG_COLOR;
-        ctx.lineWidth   = Math.max(lw, 4);
-        ctx.lineCap     = "round";
-        ctx.stroke();
+        ctx.arc(pt.x, pt.y, size * 10, 0, Math.PI * 2);
+        ctx.fill();
       } else {
-        // ベジェ曲線スムージング（直近3点でリアルタイム描画）
+        // リアルタイム描画（直近4点）
         const pts = strokePts.current;
-        const n = pts.length;
-        if (n >= 3) {
-          const lw = size * (0.3 + pressure * 1.7);
-          const segment = pts.slice(n - 3);
-          // 前の点を少し上書きして滑らかに
-          ctx.globalCompositeOperation = "source-over";
-          drawSmoothStroke(segment, color, Math.max(lw, 1));
+        if (pts.length >= 2) {
+          drawStroke(pts.slice(-4), color, size * 2);
         }
       }
-      lastPt.current = pt;
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e) => {
     if (!isDrawing.current) return;
-    isDrawing.current = false;
-    const pts = strokePts.current;
+    if (e.pointerType !== capturedPtrType.current) return;
 
-    // スクラッチ消去判定
-    if (tool === "pen" && isScratch(pts)) {
-      // historyの最後（現在）をundo（スクラッチ前に戻す）してから消去
-      applyScratch(pts);
+    isDrawing.current = false;
+    capturedPtrType.current = null;
+
+    const pts = strokePts.current;
+    // ジェスチャー消去判定（penモードのみ）
+    if (tool === "pen") {
+      if (isScratch(pts)) {
+        // 乱書き（スクラッチアウト）消去
+        undo();
+        applyScratch(pts);
+      } else if (isStrikeThrough(pts)) {
+        // 一本線（ストライクスルー）消去
+        undo();
+        applyStrikeThrough(pts);
+      }
     }
     strokePts.current = [];
-    lastPt.current    = null;
-  };
-
-  const handleSave = () => {
-    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.8);
-    onSave(dataUrl);
-    onClose();
   };
 
   return (
     <div className="fixed inset-0 bg-black/90 z-50 flex flex-col" style={{ touchAction: "none" }}>
       {/* ツールバー */}
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-gray-800 flex-wrap">
-        {/* ペン / 消しゴム */}
         <div className="flex gap-1">
-          {[{ id: "pen", icon: "✏️" }, { id: "eraser", icon: "⬜" }].map(t => (
+          {[{ id: "pen", icon: "✏️", label: "ペン" }, { id: "eraser", icon: "⬜", label: "消しゴム" }].map(t => (
             <button key={t.id}
               className={`${cx.btn} text-xs py-1 px-2 ${tool === t.id ? cx.pri : cx.ghost}`}
               onPointerDown={e => { e.stopPropagation(); setTool(t.id); }}>
-              {t.icon} {t.id === "pen" ? "ペン" : "消しゴム"}
+              {t.icon} {t.label}
             </button>
           ))}
         </div>
         <div className="w-px h-5 bg-gray-700" />
-        {/* カラー */}
         <div className="flex gap-1">
           {DRAW_COLORS.map(c => (
             <button key={c.v} title={c.label}
@@ -1032,7 +1117,6 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
           ))}
         </div>
         <div className="w-px h-5 bg-gray-700" />
-        {/* サイズ */}
         <div className="flex gap-1">
           {DRAW_SIZES.map(s => (
             <button key={s.v}
@@ -1043,24 +1127,7 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
           ))}
         </div>
         <div className="w-px h-5 bg-gray-700" />
-        <div className="text-xs text-gray-500 hidden sm:block">乱書きで消去</div>
-        <div className="w-px h-5 bg-gray-700" />
-        {/* 入力モード切り替え */}
-        <div className="flex gap-1 items-center">
-          <span className="text-xs text-gray-500 hidden sm:block">入力:</span>
-          <button
-            className={`${cx.btn} text-xs py-1 px-2 ${allowedInput === "pen" ? cx.pri : cx.ghost}`}
-            title="Apple Pencil / スタイラスのみ（パームリジェクション最強）"
-            onPointerDown={e => { e.stopPropagation(); setAllowedInput("pen"); }}>
-            ✏ ペンのみ
-          </button>
-          <button
-            className={`${cx.btn} text-xs py-1 px-2 ${allowedInput === "all" ? "bg-blue-700 text-white" : cx.ghost}`}
-            title="マウスでも描画できます"
-            onPointerDown={e => { e.stopPropagation(); setAllowedInput("all"); }}>
-            🖱 全入力
-          </button>
-        </div>
+        <span className="text-xs text-gray-500 hidden sm:block">乱書きで消去</span>
         <div className="w-px h-5 bg-gray-700 hidden sm:block" />
         <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2 ${!canUndo ? "opacity-30" : ""}`}
           onPointerDown={e => { e.stopPropagation(); undo(); }} disabled={!canUndo}>↩ 戻す</button>
@@ -1070,17 +1137,12 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
         <button className={`${cx.btn} ${cx.ghost} text-xs`}
           onPointerDown={e => { e.stopPropagation(); onClose(); }}>キャンセル</button>
         <button className={`${cx.btn} ${cx.pri} text-xs`}
-          onPointerDown={e => { e.stopPropagation(); handleSave(); }}>💾 保存</button>
+          onPointerDown={e => { e.stopPropagation(); onSave(canvasRef.current.toDataURL("image/jpeg", 0.85)); onClose(); }}>💾 保存</button>
       </div>
       {/* キャンバス */}
       <div className="flex-1 overflow-hidden flex items-center justify-center bg-gray-950 p-2">
-        <canvas
-          ref={canvasRef}
-          width={1600} height={960}
-          style={{ width: "100%", height: "100%", objectFit: "contain",
-            touchAction: "none",
-            WebkitTouchCallout: "none",
-            cursor: tool === "eraser" ? "crosshair" : "crosshair" }}
+        <canvas ref={canvasRef} width={1600} height={960}
+          style={{ width: "100%", height: "100%", objectFit: "contain", touchAction: "none", WebkitTouchCallout: "none" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -1090,6 +1152,7 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     </div>
   );
 }
+
 
 // サムネイル表示 + 編集ボタン
 function DrawingThumb({ dataUrl, onEdit, onClear, label = "手書きメモ" }) {
