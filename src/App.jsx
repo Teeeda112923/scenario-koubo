@@ -976,26 +976,70 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
   };
 
   // ─── ジェスチャー検出 ──────────────────────────────
+
+  // 既存描画との被さり度チェック（0〜1）
+  const getInkCoverage = (pts) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return 0;
+    const dpr = dprRef.current;
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const x1 = Math.max(0, Math.floor(Math.min(...xs) * dpr));
+    const y1 = Math.max(0, Math.floor(Math.min(...ys) * dpr));
+    const x2 = Math.min(canvas.width,  Math.ceil(Math.max(...xs) * dpr));
+    const y2 = Math.min(canvas.height, Math.ceil(Math.max(...ys) * dpr));
+    const w = x2 - x1, h = y2 - y1;
+    if (w <= 0 || h <= 0) return 0;
+    try {
+      const imgData = canvas.getContext("2d").getImageData(x1, y1, w, h);
+      const data = imgData.data;
+      // 背景色をパース
+      const bgHex = BG_COLOR.replace("#", "");
+      const bgR = parseInt(bgHex.slice(0, 2), 16);
+      const bgG = parseInt(bgHex.slice(2, 4), 16);
+      const bgB = parseInt(bgHex.slice(4, 6), 16);
+      // グリッドサンプリング（最大60×60点）
+      const step = Math.max(1, Math.floor(Math.min(w, h) / 60));
+      let ink = 0, total = 0;
+      for (let py = 0; py < h; py += step) {
+        for (let px = 0; px < w; px += step) {
+          const idx = (py * w + px) * 4;
+          const diff = Math.abs(data[idx] - bgR) + Math.abs(data[idx+1] - bgG) + Math.abs(data[idx+2] - bgB);
+          if (diff > 40) ink++;
+          total++;
+        }
+      }
+      return total > 0 ? ink / total : 0;
+    } catch { return 0; }
+  };
+
   const isScratch = (pts) => {
     if (pts.length < 5) return false;
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
     const bw  = Math.max(...xs) - Math.min(...xs);
     const bh  = Math.max(...ys) - Math.min(...ys);
-    const bb  = Math.max(bw, bh); // 縦横どちらが大きくてもOK（斜め対応）
+    const bb  = Math.max(bw, bh);
     let len = 0, xRev = 0, yRev = 0;
     for (let i = 1; i < pts.length; i++) {
       len += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
       if (i >= 2) {
         const dx1 = pts[i-1].x - pts[i-2].x, dx2 = pts[i].x - pts[i-1].x;
         const dy1 = pts[i-1].y - pts[i-2].y, dy2 = pts[i].y - pts[i-1].y;
-        // 方向転換検出: 符号が変わり、かつ両方向に最低4px以上動いているもの
-        if (dx1 * dx2 < 0 && Math.abs(dx1) > 4 && Math.abs(dx2) > 4) xRev++;
-        if (dy1 * dy2 < 0 && Math.abs(dy1) > 4 && Math.abs(dy2) > 4) yRev++;
+        // 最低2px以上（遅いスライドでも検出）
+        if (dx1 * dx2 < 0 && Math.abs(dx1) > 2 && Math.abs(dx2) > 2) xRev++;
+        if (dy1 * dy2 < 0 && Math.abs(dy1) > 2 && Math.abs(dy2) > 2) yRev++;
       }
     }
     const totalRev = xRev + yRev;
-    // BB最大辺の2.5倍以上の距離 & 急反転5回以上 & 最低幅60px
-    return bb >= 60 && len > bb * 1.5 && totalRev >= 3;
+    if (bb < 60) return false;
+
+    // 被さり度に応じて閾値を緩める
+    const coverage = getInkCoverage(pts);
+    if (coverage > 0.08) {
+      // 描画と重なっている → 緩い条件
+      return len > bb * 0.8 && totalRev >= 2;
+    }
+    // 描画と重なっていない → 厳しい条件（誤検知防止）
+    return len > bb * 1.5 && totalRev >= 3;
   };
 
   const isStrikeThrough = (pts) => {
