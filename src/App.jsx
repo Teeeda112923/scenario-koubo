@@ -952,16 +952,24 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
 
   // ─── ジェスチャー検出 ──────────────────────────────
   const isScratch = (pts) => {
-    if (pts.length < 8) return false;
-    const xs = pts.map(p => p.x);
-    const bw = Math.max(...xs) - Math.min(...xs);
-    const bh = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
-    let len = 0, rev = 0;
+    if (pts.length < 5) return false;
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const bw  = Math.max(...xs) - Math.min(...xs);
+    const bh  = Math.max(...ys) - Math.min(...ys);
+    const bb  = Math.max(bw, bh); // 縦横どちらが大きくてもOK（斜め対応）
+    let len = 0, xRev = 0, yRev = 0;
     for (let i = 1; i < pts.length; i++) {
       len += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
-      if (i >= 2 && (pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -80) rev++;
+      if (i >= 2) {
+        const dx1 = pts[i-1].x - pts[i-2].x, dx2 = pts[i].x - pts[i-1].x;
+        const dy1 = pts[i-1].y - pts[i-2].y, dy2 = pts[i].y - pts[i-1].y;
+        if (dx1 * dx2 < -30) xRev++; // X方向の反転（閾値を緩く）
+        if (dy1 * dy2 < -30) yRev++; // Y方向の反転も検出
+      }
     }
-    return len > bw * 2.2 && rev >= 4 && bh < bw * 0.85;
+    const totalRev = xRev + yRev;
+    // BB最大辺の1.5倍以上の距離 & 方向転換2回以上
+    return len > bb * 1.5 && totalRev >= 2;
   };
 
   const isStrikeThrough = (pts) => {
