@@ -988,13 +988,13 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
       if (i >= 2) {
         const dx1 = pts[i-1].x - pts[i-2].x, dx2 = pts[i].x - pts[i-1].x;
         const dy1 = pts[i-1].y - pts[i-2].y, dy2 = pts[i].y - pts[i-1].y;
-        if (dx1 * dx2 < -30) xRev++; // X方向の反転（閾値を緩く）
-        if (dy1 * dy2 < -30) yRev++; // Y方向の反転も検出
+        if (dx1 * dx2 < -60) xRev++; // X方向の急反転のみ検出
+        if (dy1 * dy2 < -60) yRev++; // Y方向の急反転のみ検出
       }
     }
     const totalRev = xRev + yRev;
-    // BB最大辺の1.5倍以上の距離 & 方向転換2回以上
-    return len > bb * 0.8 && totalRev >= 1;
+    // BB最大辺の1.2倍以上の距離 & 急反転3回以上
+    return len > bb * 1.2 && totalRev >= 3;
   };
 
   const isStrikeThrough = (pts) => {
