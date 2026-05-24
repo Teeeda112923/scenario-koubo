@@ -224,52 +224,26 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
 // 概要（テーマ・アンチテーマ・備考）
 // ═══════════════════════════════════════════════════════════
 function Overview({ project, updateProject }) {
-  const ov = project.overview || { theme: "", antiTheme: "", remarks: "" };
+  const ov = project.overview || {};
   const set = (k, v) => updateProject(p => ({ ...p, overview: { ...(p.overview || {}), [k]: v } }));
 
   const items = [
-    {
-      key: "theme",
-      icon: "💡",
-      label: "テーマ",
-      hint: "この作品が伝えたい核心的なメッセージ・問い・価値観",
-      placeholder: "例: 愛することは失うことへの恐怖を乗り越えることだ",
-      rows: 4,
-    },
-    {
-      key: "antiTheme",
-      icon: "⚡",
-      label: "アンチテーマ",
-      hint: "主人公が最初に信じている誤った考え方・テーマと対立する価値観",
-      placeholder: "例: 傷つくくらいなら最初から愛さない方がいい",
-      rows: 4,
-    },
-    {
-      key: "remarks",
-      icon: "📌",
-      label: "備考",
-      hint: "参考作品・企画メモ・制作上の注意点など自由に",
-      placeholder: "自由に書いてください",
-      rows: 6,
-    },
+    { key: "theme",     icon: "💡", label: "テーマ",       hint: "この作品が伝えたい核心的なメッセージ・問い・価値観",              placeholder: "例: 愛することは失うことへの恐怖を乗り越えることだ", rows: 4 },
+    { key: "antiTheme", icon: "⚡", label: "アンチテーマ", hint: "主人公が最初に信じている誤った考え方・テーマと対立する価値観",    placeholder: "例: 傷つくくらいなら最初から愛さない方がいい",       rows: 4 },
+    { key: "remarks",   icon: "📌", label: "備考",         hint: "参考作品・企画メモ・制作上の注意点など自由に",                    placeholder: "自由に書いてください",                               rows: 6 },
   ];
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       {items.map(({ key, icon, label, hint, placeholder, rows }) => (
-        <div key={key} className={cx.card}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg">{icon}</span>
-            <span className="font-semibold text-white">{label}</span>
-          </div>
-          <p className="text-xs text-gray-500 mb-2">{hint}</p>
-          <textarea
-            className={cx.ta} rows={rows}
-            value={ov[key] || ""}
-            onChange={e => set(key, e.target.value)}
-            placeholder={placeholder}
-          />
-        </div>
+        <DrawSection key={key}
+          icon={icon} label={label} hint={hint} placeholder={placeholder} rows={rows}
+          textValue={ov[key] || ""}
+          onTextChange={v => set(key, v)}
+          drawDataUrl={ov[key + "_drawing"] || null}
+          onDrawSave={dataUrl => set(key + "_drawing", dataUrl)}
+          onDrawClear={() => set(key + "_drawing", null)}
+        />
       ))}
     </div>
   );
@@ -281,42 +255,26 @@ function Overview({ project, updateProject }) {
 function TenchiJin({ project, updateProject }) {
   const set = (k, v) => updateProject(p => ({ ...p, tenchiJin: { ...p.tenchiJin, [k]: v } }));
   const t = project.tenchiJin;
-  const [drawKey, setDrawKey] = useState(null); // "ten" | "chi" | "jin"
   const items = [
-    { key: "ten",  icon: "☰", label: "天（テーマ）",  hint: "この作品が問いかけること・伝えたいメッセージ・核心的なテーマ", rows: 4 },
-    { key: "chi",  icon: "⬡", label: "地（世界観）",  hint: "時代・舞台・社会背景・世界のルールと制約", rows: 5 },
-    { key: "jin",  icon: "◉", label: "人（主人公）",  hint: "欲求・欠乏・変化の弧（arc）・核心的な葛藤", rows: 5 },
+    { key: "ten",  icon: "☰", label: "天（テーマ）",  hint: "この作品が問いかけること・伝えたいメッセージ・核心的なテーマ", rows: 5 },
+    { key: "chi",  icon: "⬡", label: "地（世界観）",  hint: "時代・舞台・社会背景・世界のルールと制約",                     rows: 5 },
+    { key: "jin",  icon: "◉", label: "人（主人公）",  hint: "欲求・欠乏・変化の弧（arc）・核心的な葛藤",                   rows: 5 },
   ];
   return (
     <div className="max-w-2xl mx-auto space-y-4">
-      {drawKey && (
-        <DrawingModal
-          initialDataUrl={t[drawKey + "_drawing"] || null}
-          onSave={dataUrl => set(drawKey + "_drawing", dataUrl)}
-          onClose={() => setDrawKey(null)}
-        />
-      )}
       {items.map(({ key, icon, label, hint, rows }) => (
-        <div key={key} className={cx.card}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-amber-500 text-lg font-bold">{icon}</span>
-            <span className="font-semibold text-white">{label}</span>
-          </div>
-          <p className="text-xs text-gray-500 mb-2">{hint}</p>
-          <textarea className={cx.ta} rows={rows} value={t[key]}
-            onChange={e => set(key, e.target.value)} placeholder={hint} />
-          <DrawingThumb
-            dataUrl={t[key + "_drawing"] || null}
-            label="手書きメモ"
-            onEdit={() => setDrawKey(key)}
-            onClear={() => set(key + "_drawing", null)}
-          />
-        </div>
+        <DrawSection key={key}
+          icon={icon} label={label} hint={hint} rows={rows}
+          textValue={t[key] || ""}
+          onTextChange={v => set(key, v)}
+          drawDataUrl={t[key + "_drawing"] || null}
+          onDrawSave={dataUrl => set(key + "_drawing", dataUrl)}
+          onDrawClear={() => set(key + "_drawing", null)}
+        />
       ))}
     </div>
   );
 }
-
 // ═══════════════════════════════════════════════════════════
 // 登場人物
 // ═══════════════════════════════════════════════════════════
@@ -417,7 +375,6 @@ function Characters({ project, updateProject }) {
 function Structure({ project, updateProject }) {
   const st = project.structure;
   const set = (k, v) => updateProject(p => ({ ...p, structure: { ...p.structure, [k]: v } }));
-  const [drawKey, setDrawKey] = useState(null);
 
   const KSKT = [
     { k: "ki",    label: "起", hint: "状況設定・主人公の日常・世界の提示" },
@@ -436,13 +393,6 @@ function Structure({ project, updateProject }) {
 
   return (
     <div className="max-w-2xl mx-auto">
-      {drawKey && (
-        <DrawingModal
-          initialDataUrl={st[drawKey + "_drawing"] || null}
-          onSave={dataUrl => set(drawKey + "_drawing", dataUrl)}
-          onClose={() => setDrawKey(null)}
-        />
-      )}
       <div className="flex gap-2 mb-4">
         {["起承転結", "三幕構成"].map(m => (
           <button key={m} className={`${cx.btn} ${st.mode === m ? cx.pri : cx.ghost}`}
@@ -451,26 +401,19 @@ function Structure({ project, updateProject }) {
       </div>
       <div className="space-y-3">
         {items.map(({ k, label, hint }) => (
-          <div key={k} className={cx.card}>
-            <div className="flex items-baseline gap-3 mb-2">
-              <span className="text-amber-500 font-bold">{label}</span>
-              <span className="text-xs text-gray-500">{hint}</span>
-            </div>
-            <textarea className={cx.ta} rows={4} value={st[k] || ""}
-              onChange={e => set(k, e.target.value)} placeholder={hint} />
-            <DrawingThumb
-              dataUrl={st[k + "_drawing"] || null}
-              label="手書きメモ"
-              onEdit={() => setDrawKey(k)}
-              onClear={() => set(k + "_drawing", null)}
-            />
-          </div>
+          <DrawSection key={k}
+            label={label} hint={hint} rows={4}
+            textValue={st[k] || ""}
+            onTextChange={v => set(k, v)}
+            drawDataUrl={st[k + "_drawing"] || null}
+            onDrawSave={dataUrl => set(k + "_drawing", dataUrl)}
+            onDrawClear={() => set(k + "_drawing", null)}
+          />
         ))}
       </div>
     </div>
   );
 }
-
 // ═══════════════════════════════════════════════════════════
 // 箱書き（幕 → [エピソード] → シーン）
 // ═══════════════════════════════════════════════════════════
@@ -685,9 +628,14 @@ function Hakogaki({ project, updateProject }) {
                 onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "characters", e.target.value)} />
             </div>
             <div className="col-span-2">
-              <label className={cx.lbl}>内容（このシーンで起きること）</label>
-              <textarea className={cx.ta} rows={3} value={editSc.content}
-                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "content", e.target.value)} />
+              <DrawSection
+                label="内容（このシーンで起きること）" rows={3}
+                textValue={editSc.content}
+                onTextChange={v => setSceneField(editing.actId, editing.epId, editSc.id, "content", v)}
+                drawDataUrl={editSc.drawingDataUrl}
+                onDrawSave={dataUrl => setSceneField(editing.actId, editing.epId, editSc.id, "drawingDataUrl", dataUrl)}
+                onDrawClear={() => setSceneField(editing.actId, editing.epId, editSc.id, "drawingDataUrl", null)}
+              />
             </div>
             <div className="col-span-2">
               <label className={cx.lbl}>目的（物語上このシーンが必要な理由）</label>
@@ -710,12 +658,7 @@ function Hakogaki({ project, updateProject }) {
                 </div>
               </div>
             )}
-            <DrawingThumb
-              dataUrl={editSc.drawingDataUrl}
-              label="シーンスケッチ"
-              onEdit={() => setSceneDrawing({ actId: editing.actId, epId: editing.epId, sceneId: editSc.id })}
-              onClear={() => setSceneField(editing.actId, editing.epId, editSc.id, "drawingDataUrl", null)}
-            />
+
           </div>
         </div>
       )}
@@ -740,18 +683,97 @@ function Hakogaki({ project, updateProject }) {
 function SceneRow({ sc, active, onClick, onDel }) {
   const t = SCENE_TYPE[sc.type] || SCENE_TYPE.daily;
   return (
-    <div className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${active ? "bg-gray-700" : "bg-gray-800/40 hover:bg-gray-800"}`}
+    <div className={`flex items-center gap-2 px-2 py-2 rounded cursor-pointer transition-colors border ${active ? "bg-gray-700 border-amber-700" : "bg-gray-800/40 hover:bg-gray-800 border-transparent"}`}
       onClick={onClick}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.dot}`} title={t.label}></span>
-      <span className="text-xs text-amber-400/70 flex-shrink-0 w-12 truncate">{sc.location || "—"}</span>
-      <span className="text-xs text-gray-400 flex-1 min-w-0 truncate">{sc.content || "内容未入力"}</span>
+      <span className="text-xs text-amber-400/70 flex-shrink-0 w-14 truncate">{sc.location || "—"}</span>
+      <span className="text-xs text-gray-400 flex-1 min-w-0 truncate">{sc.content || "（タップして編集）"}</span>
+      {sc.drawingDataUrl && <span className="text-xs text-amber-600 flex-shrink-0">✏</span>}
       <span className="text-xs text-gray-600 flex-shrink-0">{sc.time}</span>
+      {active && <span className="text-xs text-amber-400 flex-shrink-0">▼編集中</span>}
       <button className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 ml-1 bg-transparent border-0 cursor-pointer"
         onClick={e => { e.stopPropagation(); onDel(); }}>✕</button>
     </div>
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// 手書き/テキスト トグル
+// ═══════════════════════════════════════════════════════════
+function ModeToggle({ mode, onChange }) {
+  return (
+    <div className="flex items-center gap-0.5 bg-gray-800 rounded-full p-0.5 select-none">
+      {[["draw","✏ 手書き"],["text","⌨ テキスト"]].map(([m, label]) => (
+        <button key={m}
+          className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${mode === m ? (m === "draw" ? "bg-amber-600 text-black" : "bg-gray-600 text-white") : "text-gray-500 hover:text-gray-300 bg-transparent"}`}
+          onClick={() => onChange(m)}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+// 手書き+テキスト 統合セクションカード
+function DrawSection({ cardClass="", icon, label, hint, textValue, onTextChange, placeholder, rows=4, drawDataUrl, onDrawSave, onDrawClear }) {
+  const [mode, setMode] = useState("draw");
+  const [showModal, setShowModal] = useState(false);
+
+  return (
+    <div className={cardClass || cx.card}>
+      {showModal && (
+        <DrawingModal
+          initialDataUrl={drawDataUrl}
+          onSave={dataUrl => { onDrawSave(dataUrl); setShowModal(false); }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+      {/* ヘッダー */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-amber-500 text-lg font-bold">{icon}</span>}
+          <span className="font-semibold text-white text-sm">{label}</span>
+        </div>
+        <ModeToggle mode={mode} onChange={setMode} />
+      </div>
+      {hint && <p className="text-xs text-gray-500 mb-2">{hint}</p>}
+
+      {/* 手書きモード */}
+      {mode === "draw" && (
+        <div>
+          {drawDataUrl ? (
+            <div className="relative rounded overflow-hidden border border-gray-700 cursor-pointer mb-2"
+              onClick={() => setShowModal(true)}>
+              <img src={drawDataUrl} alt="手書きメモ" className="w-full object-contain max-h-64 bg-gray-900" />
+              <div className="absolute inset-0 bg-black/0 hover:bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-all">
+                <span className="text-white text-sm font-medium bg-black/60 px-3 py-1 rounded">✏ 編集</span>
+              </div>
+            </div>
+          ) : (
+            <div className="border border-dashed border-gray-700 rounded h-32 flex flex-col items-center justify-center cursor-pointer hover:border-amber-600 transition-colors mb-2"
+              onClick={() => setShowModal(true)}>
+              <span className="text-3xl mb-1">✏</span>
+              <span className="text-xs text-gray-500">タップして描く</span>
+            </div>
+          )}
+          <div className="flex gap-1 justify-end">
+            <button className={`${cx.btn} ${cx.ghost} text-xs py-0.5 px-2`} onClick={() => setShowModal(true)}>
+              {drawDataUrl ? "✏ 編集" : "✏ 描く"}
+            </button>
+            {drawDataUrl && (
+              <button className={`${cx.btn} ${cx.danger} text-xs py-0.5 px-2`} onClick={onDrawClear}>削除</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* テキストモード */}
+      {mode === "text" && (
+        <textarea className={cx.ta} rows={rows} value={textValue || ""}
+          onChange={e => onTextChange(e.target.value)} placeholder={placeholder || hint} />
+      )}
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════
 // 手書き — DrawingModal
