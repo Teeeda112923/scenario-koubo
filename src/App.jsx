@@ -804,30 +804,48 @@ const DRAW_SIZES = [
 const BG_COLOR = "#111827";
 
 function DrawingModal({ initialDataUrl, onSave, onClose }) {
-  const canvasRef        = useRef(null);
-  const isDrawing        = useRef(false);
-  const capturedPtrType  = useRef(null);  // MyScript方式: 最初のpointerTypeをロック
-  const strokePts        = useRef([]);
-  const [tool,         setTool]         = useState("pen");
-  const [color,        setColor]        = useState(DRAW_COLORS[0].v);
-  const [size,         setSize]         = useState(DRAW_SIZES[1].v);
-  const [history,      setHistory]      = useState([]);
-  const [canUndo,      setCanUndo]      = useState(false);
+  const canvasRef       = useRef(null);
+  const ctxRef          = useRef(null);   // DPR対応済みcontext
+  const dprRef          = useRef(1);      // devicePixelRatio
+  const isDrawing       = useRef(false);
+  const capturedPtrType = useRef(null);
+  const strokePts       = useRef([]);
+  const [tool,    setTool]    = useState("pen");
+  const [color,   setColor]   = useState(DRAW_COLORS[0].v);
+  const [size,    setSize]    = useState(DRAW_SIZES[1].v);
+  const [history, setHistory] = useState([]);
+  const [canUndo, setCanUndo] = useState(false);
 
-  // 初期化
+  // ─── DPR対応初期化（記事の方法2準拠）───────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    const dpr  = window.devicePixelRatio || 1;
+    dprRef.current = dpr;
+    const rect = canvas.getBoundingClientRect();
+
+    // キャンバスの物理解像度をDPR倍に設定
+    canvas.width  = rect.width  * dpr;
+    canvas.height = rect.height * dpr;
+
     const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);   // 以後の描画はCSS座標系で行う
+    ctxRef.current = ctx;
+
+    // 背景塗り
     ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, rect.width, rect.height);
+
+    // 既存データの読み込み
     if (initialDataUrl) {
       const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
       img.src = initialDataUrl;
     }
   }, []);
 
+  // ─── ヒストリー管理 ──────────────────────────────────
   const pushHistory = () => {
     const snap = canvasRef.current.toDataURL("image/jpeg", 0.6);
     setHistory(h => { const n = [...h.slice(-20), snap]; setCanUndo(n.length > 0); return n; });
@@ -839,11 +857,13 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
       const prev = h[h.length - 1];
       const next = h.slice(0, -1);
       setCanUndo(next.length > 0);
-      const img = new Image();
+      const canvas = canvasRef.current;
+      const rect   = canvas.getBoundingClientRect();
+      const img    = new Image();
       img.onload = () => {
-        const ctx = canvasRef.current.getContext("2d");
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        ctx.drawImage(img, 0, 0);
+        const ctx = ctxRef.current;
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        ctx.drawImage(img, 0, 0, rect.width, rect.height);
       };
       img.src = prev;
       return next;
@@ -852,51 +872,34 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
 
   const clear = () => {
     pushHistory();
-    const ctx = canvasRef.current.getContext("2d");
-    ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-  };
-
-  const toXY = (e) => {
     const canvas = canvasRef.current;
     const rect   = canvas.getBoundingClientRect();
-    // objectFit:containの余白を正確に計算
-    const canvasAspect = canvas.width / canvas.height;
-    const rectAspect   = rect.width   / rect.height;
-    let drawW, drawH, offX, offY;
-    if (canvasAspect > rectAspect) {
-      drawW = rect.width;
-      drawH = rect.width / canvasAspect;
-      offX  = 0;
-      offY  = (rect.height - drawH) / 2;
-    } else {
-      drawH = rect.height;
-      drawW = rect.height * canvasAspect;
-      offX  = (rect.width - drawW) / 2;
-      offY  = 0;
-    }
-    const sx = canvas.width  / drawW;
-    const sy = canvas.height / drawH;
+    const ctx    = ctxRef.current;
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+  };
+
+  // ─── 座標変換（DPR補正済み・CSS座標系）───────────────
+  // getBoundingClientRect()はCSS座標なのでDPR不要
+  const toXY = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
     return {
-      x: (e.clientX - rect.left - offX) * sx,
-      y: (e.clientY - rect.top  - offY) * sy,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
       p: Math.max(e.pressure > 0 ? e.pressure : 0.5, 0.1),
       t: Date.now(),
     };
   };
 
-  // ─── MyScript方式のストローク描画 ───────────────────────
-  // 参考: iinkTS CanvasRendererStroke.ts
+  // ─── MyScript方式ストローク描画 ────────────────────
   const angleAxe = (p1, p2) => Math.atan2(p2.y - p1.y, p2.x - p1.x);
-
-  const linkPts = (pt, angle, width) => {
+  const linkPts  = (pt, angle, width) => {
     const r = pt.p * width;
     return [
       { x: pt.x - Math.sin(angle) * r, y: pt.y + Math.cos(angle) * r },
       { x: pt.x + Math.sin(angle) * r, y: pt.y - Math.cos(angle) * r },
     ];
   };
-
   const midPt = (p1, p2) => ({
     x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2,
     p: (p1.p + p2.p) / 2, t: (p1.t + p2.t) / 2,
@@ -904,32 +907,23 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
 
   const drawStroke = (pts, col, width) => {
     if (!pts.length) return;
-    const ctx = canvasRef.current.getContext("2d");
-    const n = pts.length;
+    const ctx = ctxRef.current;
+    const n   = pts.length;
     ctx.save();
     ctx.beginPath();
     ctx.fillStyle = col;
-
     if (n < 3) {
-      // 点または短い線：円で描く
       ctx.arc(pts[0].x, pts[0].y, width * (pts[0].p || 0.5), 0, Math.PI * 2, true);
     } else {
-      // MyScript方式: fill-basedの可変幅ストローク
       const p0 = pts[0];
       ctx.arc(p0.x, p0.y, width * p0.p, 0, Math.PI * 2, true);
-
       const seg2 = midPt(pts[0], pts[1]);
       const lk0  = linkPts(pts[0], angleAxe(pts[0], seg2), width);
       const lk2  = linkPts(seg2,   angleAxe(pts[0], seg2), width);
       ctx.moveTo(lk0[0].x, lk0[0].y);
-      ctx.lineTo(lk2[0].x, lk2[0].y);
-      ctx.lineTo(lk2[1].x, lk2[1].y);
-      ctx.lineTo(lk0[1].x, lk0[1].y);
-
+      ctx.lineTo(lk2[0].x, lk2[0].y); ctx.lineTo(lk2[1].x, lk2[1].y); ctx.lineTo(lk0[1].x, lk0[1].y);
       for (let i = 0; i < n - 2; i++) {
-        const begin = midPt(pts[i],   pts[i+1]);
-        const end   = midPt(pts[i+1], pts[i+2]);
-        const ctrl  = pts[i+1];
+        const begin = midPt(pts[i], pts[i+1]), end = midPt(pts[i+1], pts[i+2]), ctrl = pts[i+1];
         const l1 = linkPts(begin, angleAxe(begin, ctrl), width);
         const l2 = linkPts(end,   angleAxe(ctrl,  end),  width);
         const l3 = linkPts(ctrl,  angleAxe(begin, end),  width);
@@ -938,26 +932,17 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
         ctx.lineTo(l2[1].x, l2[1].y);
         ctx.quadraticCurveTo(l3[1].x, l3[1].y, l1[1].x, l1[1].y);
       }
-
-      const bl  = midPt(pts[n-2], pts[n-1]);
-      const lkb = linkPts(bl,      angleAxe(pts[n-2], pts[n-1]), width);
-      const lke = linkPts(pts[n-1],angleAxe(pts[n-2], pts[n-1]), width);
+      const bl = midPt(pts[n-2], pts[n-1]);
+      const lkb = linkPts(bl, angleAxe(pts[n-2], pts[n-1]), width);
+      const lke = linkPts(pts[n-1], angleAxe(pts[n-2], pts[n-1]), width);
       ctx.moveTo(lkb[0].x, lkb[0].y);
-      ctx.lineTo(lke[0].x, lke[0].y);
-      ctx.lineTo(lke[1].x, lke[1].y);
-      ctx.lineTo(lkb[1].x, lkb[1].y);
-
-      // 終端の丸め
-      const ARCSPLIT = 6;
+      ctx.lineTo(lke[0].x, lke[0].y); ctx.lineTo(lke[1].x, lke[1].y); ctx.lineTo(lkb[1].x, lkb[1].y);
       const angle = angleAxe(pts[n-2], pts[n-1]);
       const lkf = linkPts(pts[n-1], angle, width);
       ctx.moveTo(lkf[0].x, lkf[0].y);
-      for (let i = 1; i <= ARCSPLIT; i++) {
-        const na = angle - (i * Math.PI / ARCSPLIT);
-        ctx.lineTo(
-          pts[n-1].x - pts[n-1].p * width * Math.sin(na),
-          pts[n-1].y + pts[n-1].p * width * Math.cos(na)
-        );
+      for (let i = 1; i <= 6; i++) {
+        const na = angle - (i * Math.PI / 6);
+        ctx.lineTo(pts[n-1].x - pts[n-1].p * width * Math.sin(na), pts[n-1].y + pts[n-1].p * width * Math.cos(na));
       }
     }
     ctx.closePath();
@@ -965,176 +950,111 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     ctx.restore();
   };
 
-  // ─── スクラッチ消去（往復ジェスチャー検出）────────────
+  // ─── ジェスチャー検出 ──────────────────────────────
   const isScratch = (pts) => {
     if (pts.length < 8) return false;
     const xs = pts.map(p => p.x);
     const bw = Math.max(...xs) - Math.min(...xs);
     const bh = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
-    let totalLen = 0, reversals = 0;
+    let len = 0, rev = 0;
     for (let i = 1; i < pts.length; i++) {
-      totalLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
-      if (i >= 2) {
-        const dx1 = pts[i-1].x - pts[i-2].x;
-        const dx2 = pts[i].x   - pts[i-1].x;
-        if (dx1 * dx2 < -80) reversals++;
-      }
+      len += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+      if (i >= 2 && (pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -80) rev++;
     }
-    return totalLen > bw * 2.2 && reversals >= 4 && bh < bw * 0.85;
+    return len > bw * 2.2 && rev >= 4 && bh < bw * 0.85;
   };
 
-  const getScratchArea = (pts) => {
-    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    return { x: Math.min(...xs) - 15, y: Math.min(...ys) - 25,
-             w: Math.max(...xs) - Math.min(...xs) + 30,
-             h: Math.max(...ys) - Math.min(...ys) + 50 };
-  };
-
-  // ─── ストライクスルー消去（一本横線で消去）────────────
-  // MyScript iink: "strike it through" ジェスチャー
   const isStrikeThrough = (pts) => {
     if (pts.length < 4) return false;
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    const bw = Math.max(...xs) - Math.min(...xs); // 横幅
-    const bh = Math.max(...ys) - Math.min(...ys); // 縦幅
-
-    // 横幅が縦幅の4倍以上 → 水平に近い一本線
-    if (bw < 100 || bh > bw * 0.25) return false;
-
-    // 方向反転がほぼない（往復でない）
-    let reversals = 0;
+    const bw = Math.max(...xs) - Math.min(...xs);
+    const bh = Math.max(...ys) - Math.min(...ys);
+    if (bw < 80 || bh > bw * 0.25) return false;
+    let rev = 0;
     for (let i = 2; i < pts.length; i++) {
-      const dx1 = pts[i-1].x - pts[i-2].x;
-      const dx2 = pts[i].x   - pts[i-1].x;
-      if (dx1 * dx2 < -100) reversals++;
+      if ((pts[i-1].x - pts[i-2].x) * (pts[i].x - pts[i-1].x) < -100) rev++;
     }
-    if (reversals >= 2) return false; // 往復ならスクラッチ
-
-    // 始点から終点への直線からのズレが小さい（直線に近い）
-    const startX = pts[0].x, startY = pts[0].y;
-    const endX = pts[pts.length-1].x, endY = pts[pts.length-1].y;
-    const dx = endX - startX, dy = endY - startY;
+    if (rev >= 2) return false;
+    const dx = pts[pts.length-1].x - pts[0].x, dy = pts[pts.length-1].y - pts[0].y;
     const lineLen = Math.hypot(dx, dy);
-    if (lineLen < 80) return false;
-
-    // 各点の直線からの距離の最大値を確認
+    if (lineLen < 60) return false;
     let maxDist = 0;
     for (const pt of pts) {
-      const dist = Math.abs(dy * pt.x - dx * pt.y + endX * startY - endY * startX) / lineLen;
-      maxDist = Math.max(maxDist, dist);
+      maxDist = Math.max(maxDist, Math.abs(dy * pt.x - dx * pt.y + pts[pts.length-1].x * pts[0].y - pts[pts.length-1].y * pts[0].x) / lineLen);
     }
-    // 直線からのズレが線長の15%以内
     return maxDist < lineLen * 0.15;
   };
 
-  const getStrikeThroughArea = (pts) => {
-    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    return { x: Math.min(...xs) - 10, y: Math.min(...ys) - 60,
-             w: Math.max(...xs) - Math.min(...xs) + 20,
-             h: Math.max(...ys) - Math.min(...ys) + 120 };
-  };
+  const getScratchArea      = (pts) => ({ x: Math.min(...pts.map(p=>p.x))-15, y: Math.min(...pts.map(p=>p.y))-25, w: Math.max(...pts.map(p=>p.x))-Math.min(...pts.map(p=>p.x))+30, h: Math.max(...pts.map(p=>p.y))-Math.min(...pts.map(p=>p.y))+50 });
+  const getStrikeThroughArea = (pts) => ({ x: Math.min(...pts.map(p=>p.x))-10, y: Math.min(...pts.map(p=>p.y))-60, w: Math.max(...pts.map(p=>p.x))-Math.min(...pts.map(p=>p.x))+20, h: Math.max(...pts.map(p=>p.y))-Math.min(...pts.map(p=>p.y))+120 });
 
-  // ─── PointerEventハンドラ（MyScript方式パームリジェクション）───
+  // ─── PointerEventハンドラ（MyScript方式）──────────
   const onPointerDown = (e) => {
     e.preventDefault();
-    // MyScript方式: touchは完全に無視。最初のpointerTypeをロック
     if (e.pointerType === "touch") return;
-    if (e.button !== 0 || e.buttons !== 1) return;  // 左ボタン以外を無視
-
-    capturedPtrType.current = e.pointerType;  // ← ここがポイント
+    if (e.button !== 0 || e.buttons !== 1) return;
+    capturedPtrType.current = e.pointerType;
     isDrawing.current = true;
     strokePts.current = [];
     canvasRef.current.setPointerCapture(e.pointerId);
     pushHistory();
-
     const pt = toXY(e);
     strokePts.current.push(pt);
-    if (tool !== "eraser") {
-      drawStroke([pt], color, size * 2);
-    }
+    if (tool !== "eraser") drawStroke([pt], color, size * 2);
   };
 
   const onPointerMove = (e) => {
-    if (!isDrawing.current) return;
+    if (!isDrawing.current || e.pointerType !== capturedPtrType.current) return;
     e.preventDefault();
-    // MyScript方式: 最初のpointerTypeと異なるイベントは全て無視
-    if (e.pointerType !== capturedPtrType.current) return;
-
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const ev of events) {
       const pt = toXY(ev);
       strokePts.current.push(pt);
-
       if (tool === "eraser") {
-        const ctx = canvasRef.current.getContext("2d");
+        const ctx = ctxRef.current;
         ctx.fillStyle = BG_COLOR;
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, size * 10, 0, Math.PI * 2);
         ctx.fill();
-      } else {
-        // リアルタイム描画（直近4点）
-        const pts = strokePts.current;
-        if (pts.length >= 2) {
-          drawStroke(pts.slice(-4), color, size * 2);
-        }
+      } else if (strokePts.current.length >= 2) {
+        drawStroke(strokePts.current.slice(-4), color, size * 2);
       }
     }
   };
 
   const onPointerUp = (e) => {
-    if (!isDrawing.current) return;
-    if (e.pointerType !== capturedPtrType.current) return;
-
+    if (!isDrawing.current || e.pointerType !== capturedPtrType.current) return;
     isDrawing.current = false;
     capturedPtrType.current = null;
-
     const pts = strokePts.current;
-    // ジェスチャー消去判定（penモードのみ）
+    strokePts.current = [];
     if (tool === "pen") {
       let area = null;
-      if (isScratch(pts))        area = getScratchArea(pts);
+      if (isScratch(pts))            area = getScratchArea(pts);
       else if (isStrikeThrough(pts)) area = getStrikeThroughArea(pts);
 
       if (area) {
-        // 非同期問題を回避: historyから直接前の状態を取得し、
-        // 画像ロード完了後にまとめて消去する
-        setHistory(h => {
-          const canvas = canvasRef.current;
-          const ctx    = canvas.getContext("2d");
-          if (h.length > 0) {
-            const prev = h[h.length - 1];
-            const img  = new Image();
-            img.onload = () => {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0);
-              ctx.fillStyle = BG_COLOR;
-              ctx.fillRect(area.x, area.y, area.w, area.h);
-            };
-            img.src = prev;
-            const next = h.slice(0, -1);
-            setCanUndo(next.length > 0);
-            return next;
-          } else {
-            // 履歴なし: 現状から直接消去
-            ctx.fillStyle = BG_COLOR;
-            ctx.fillRect(area.x, area.y, area.w, area.h);
-            return h;
-          }
-        });
+        // ジェスチャー消去: 直接BG_COLORで塗りつぶす（非同期なし）
+        // ジェスチャーストローク自体も含めて消去されるのでシンプルで確実
+        const ctx = ctxRef.current;
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(area.x, area.y, area.w, area.h);
       }
     }
-    strokePts.current = [];
+  };
+
+  const handleSave = () => {
+    onSave(canvasRef.current.toDataURL("image/jpeg", 0.85));
+    onClose();
   };
 
   return (
     <div className="fixed inset-0 bg-black/90 z-50 flex flex-col" style={{ touchAction: "none" }}>
-      {/* ツールバー */}
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-gray-800 flex-wrap">
         <div className="flex gap-1">
-          {[{ id: "pen", icon: "✏️", label: "ペン" }, { id: "eraser", icon: "⬜", label: "消しゴム" }].map(t => (
-            <button key={t.id}
-              className={`${cx.btn} text-xs py-1 px-2 ${tool === t.id ? cx.pri : cx.ghost}`}
-              onPointerDown={e => { e.stopPropagation(); setTool(t.id); }}>
+          {[{ id:"pen", icon:"✏️", label:"ペン" },{ id:"eraser", icon:"⬜", label:"消しゴム" }].map(t => (
+            <button key={t.id} className={`${cx.btn} text-xs py-1 px-2 ${tool===t.id?cx.pri:cx.ghost}`}
+              onPointerDown={e=>{e.stopPropagation();setTool(t.id);}}>
               {t.icon} {t.label}
             </button>
           ))}
@@ -1143,38 +1063,37 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
         <div className="flex gap-1">
           {DRAW_COLORS.map(c => (
             <button key={c.v} title={c.label}
-              className={`w-6 h-6 rounded-full border-2 transition-transform ${color === c.v ? "border-white scale-125" : "border-transparent"}`}
-              style={{ background: c.v }}
-              onPointerDown={e => { e.stopPropagation(); setColor(c.v); setTool("pen"); }} />
+              className={`w-6 h-6 rounded-full border-2 transition-transform ${color===c.v?"border-white scale-125":"border-transparent"}`}
+              style={{background:c.v}}
+              onPointerDown={e=>{e.stopPropagation();setColor(c.v);setTool("pen");}}/> 
           ))}
         </div>
         <div className="w-px h-5 bg-gray-700" />
         <div className="flex gap-1">
           {DRAW_SIZES.map(s => (
-            <button key={s.v}
-              className={`${cx.btn} text-xs py-1 px-2 ${size === s.v ? cx.pri : cx.ghost}`}
-              onPointerDown={e => { e.stopPropagation(); setSize(s.v); }}>
+            <button key={s.v} className={`${cx.btn} text-xs py-1 px-2 ${size===s.v?cx.pri:cx.ghost}`}
+              onPointerDown={e=>{e.stopPropagation();setSize(s.v);}}>
               {s.label}
             </button>
           ))}
         </div>
         <div className="w-px h-5 bg-gray-700" />
-        <span className="text-xs text-gray-500 hidden sm:block">乱書きで消去</span>
+        <span className="text-xs text-gray-500 hidden sm:block">乱書き・横線で消去</span>
         <div className="w-px h-5 bg-gray-700 hidden sm:block" />
-        <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2 ${!canUndo ? "opacity-30" : ""}`}
-          onPointerDown={e => { e.stopPropagation(); undo(); }} disabled={!canUndo}>↩ 戻す</button>
+        <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2 ${!canUndo?"opacity-30":""}`}
+          onPointerDown={e=>{e.stopPropagation();undo();}} disabled={!canUndo}>↩ 戻す</button>
         <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`}
-          onPointerDown={e => { e.stopPropagation(); clear(); }}>🗑 全消し</button>
+          onPointerDown={e=>{e.stopPropagation();clear();}}>🗑 全消し</button>
         <div className="flex-1" />
         <button className={`${cx.btn} ${cx.ghost} text-xs`}
-          onPointerDown={e => { e.stopPropagation(); onClose(); }}>キャンセル</button>
+          onClick={e=>{e.stopPropagation();onClose();}}>キャンセル</button>
         <button className={`${cx.btn} ${cx.pri} text-xs`}
-          onPointerDown={e => { e.stopPropagation(); onSave(canvasRef.current.toDataURL("image/jpeg", 0.85)); onClose(); }}>💾 保存</button>
+          onClick={e=>{e.stopPropagation();handleSave();}}>💾 保存</button>
       </div>
-      {/* キャンバス */}
-      <div className="flex-1 overflow-hidden flex items-center justify-center bg-gray-950 p-2">
-        <canvas ref={canvasRef} width={1600} height={960}
-          style={{ width: "100%", height: "100%", objectFit: "contain", touchAction: "none", WebkitTouchCallout: "none" }}
+      {/* キャンバス — objectFitなし・DPR対応 */}
+      <div className="flex-1 overflow-hidden bg-gray-950 p-2">
+        <canvas ref={canvasRef}
+          style={{ width:"100%", height:"100%", display:"block", touchAction:"none", WebkitTouchCallout:"none" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
