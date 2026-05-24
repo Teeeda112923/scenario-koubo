@@ -858,12 +858,28 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
   };
 
   const toXY = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const sx = canvasRef.current.width  / rect.width;
-    const sy = canvasRef.current.height / rect.height;
+    const canvas = canvasRef.current;
+    const rect   = canvas.getBoundingClientRect();
+    // objectFit:containの余白を正確に計算
+    const canvasAspect = canvas.width / canvas.height;
+    const rectAspect   = rect.width   / rect.height;
+    let drawW, drawH, offX, offY;
+    if (canvasAspect > rectAspect) {
+      drawW = rect.width;
+      drawH = rect.width / canvasAspect;
+      offX  = 0;
+      offY  = (rect.height - drawH) / 2;
+    } else {
+      drawH = rect.height;
+      drawW = rect.height * canvasAspect;
+      offX  = (rect.width - drawW) / 2;
+      offY  = 0;
+    }
+    const sx = canvas.width  / drawW;
+    const sy = canvas.height / drawH;
     return {
-      x: (e.clientX - rect.left) * sx,
-      y: (e.clientY - rect.top)  * sy,
+      x: (e.clientX - rect.left - offX) * sx,
+      y: (e.clientY - rect.top  - offY) * sy,
       p: Math.max(e.pressure > 0 ? e.pressure : 0.5, 0.1),
       t: Date.now(),
     };
@@ -967,12 +983,11 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     return totalLen > bw * 2.2 && reversals >= 4 && bh < bw * 0.85;
   };
 
-  const applyScratch = (pts) => {
+  const getScratchArea = (pts) => {
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    const x1 = Math.min(...xs) - 15, y1 = Math.min(...ys) - 25;
-    const ctx = canvasRef.current.getContext("2d");
-    ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(x1, y1, Math.max(...xs) - x1 + 15, Math.max(...ys) - y1 + 25);
+    return { x: Math.min(...xs) - 15, y: Math.min(...ys) - 25,
+             w: Math.max(...xs) - Math.min(...xs) + 30,
+             h: Math.max(...ys) - Math.min(...ys) + 50 };
   };
 
   // ─── ストライクスルー消去（一本横線で消去）────────────
@@ -1012,16 +1027,11 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     return maxDist < lineLen * 0.15;
   };
 
-  const applyStrikeThrough = (pts) => {
-    // 線が通った範囲（縦方向に余裕を持たせて）を消去
+  const getStrikeThroughArea = (pts) => {
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    const ctx = canvasRef.current.getContext("2d");
-    const x1 = Math.min(...xs) - 10;
-    const y1 = Math.min(...ys) - 40; // 線の上下40pxを消去
-    const w  = Math.max(...xs) - x1 + 10;
-    const h  = Math.max(...ys) - y1 + 40;
-    ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(x1, y1, w, h);
+    return { x: Math.min(...xs) - 10, y: Math.min(...ys) - 60,
+             w: Math.max(...xs) - Math.min(...xs) + 20,
+             h: Math.max(...ys) - Math.min(...ys) + 120 };
   };
 
   // ─── PointerEventハンドラ（MyScript方式パームリジェクション）───
@@ -1081,14 +1091,36 @@ function DrawingModal({ initialDataUrl, onSave, onClose }) {
     const pts = strokePts.current;
     // ジェスチャー消去判定（penモードのみ）
     if (tool === "pen") {
-      if (isScratch(pts)) {
-        // 乱書き（スクラッチアウト）消去
-        undo();
-        applyScratch(pts);
-      } else if (isStrikeThrough(pts)) {
-        // 一本線（ストライクスルー）消去
-        undo();
-        applyStrikeThrough(pts);
+      let area = null;
+      if (isScratch(pts))        area = getScratchArea(pts);
+      else if (isStrikeThrough(pts)) area = getStrikeThroughArea(pts);
+
+      if (area) {
+        // 非同期問題を回避: historyから直接前の状態を取得し、
+        // 画像ロード完了後にまとめて消去する
+        setHistory(h => {
+          const canvas = canvasRef.current;
+          const ctx    = canvas.getContext("2d");
+          if (h.length > 0) {
+            const prev = h[h.length - 1];
+            const img  = new Image();
+            img.onload = () => {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0);
+              ctx.fillStyle = BG_COLOR;
+              ctx.fillRect(area.x, area.y, area.w, area.h);
+            };
+            img.src = prev;
+            const next = h.slice(0, -1);
+            setCanUndo(next.length > 0);
+            return next;
+          } else {
+            // 履歴なし: 現状から直接消去
+            ctx.fillStyle = BG_COLOR;
+            ctx.fillRect(area.x, area.y, area.w, area.h);
+            return h;
+          }
+        });
       }
     }
     strokePts.current = [];
