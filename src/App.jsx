@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "./supabase";
 
 // ─── ユーティリティ ───────────────────────────────────────
 const genId = () => Math.random().toString(36).slice(2, 9);
@@ -67,7 +68,7 @@ const SCENE_TYPE = {
 // ═══════════════════════════════════════════════════════════
 // HOME
 // ═══════════════════════════════════════════════════════════
-function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isReady, onManualFetch, onOpenSetting }) {
+function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, user, onSignOut }) {
   const [newTitle, setNewTitle] = useState("");
   const fileRef = useRef();
 
@@ -112,8 +113,8 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isReady, onManu
           <p className="text-xs text-gray-500 mt-0.5">映画・ドラマ脚本制作ツール</p>
         </div>
         <div className="flex gap-2 items-center">
-          <SyncBadge syncState={syncState} syncMsg={syncMsg} isReady={isReady}
-            onManualFetch={onManualFetch} onOpenSetting={onOpenSetting} />
+          <SyncBadge syncState={syncState} syncMsg={syncMsg}
+            onManualFetch={onManualFetch} user={user} onSignOut={onSignOut} />
           <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={importData} />
           <button className={`${cx.btn} ${cx.ghost}`} onClick={() => fileRef.current.click()}>📥 インポート</button>
           <button className={`${cx.btn} ${cx.ghost}`} onClick={exportAll}>📤 エクスポート</button>
@@ -176,7 +177,7 @@ const TABS = (useEmotionCurve) => [
   { id: "sketches",     label: "✏ スケッチ" },
 ];
 
-function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, isReady, onManualFetch, onOpenSetting }) {
+function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, onManualFetch, user, onSignOut }) {
   return (
     <div className={cx.page}>
       {/* ヘッダー */}
@@ -192,8 +193,8 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
           value={project.status} onChange={e => updateProject(p => ({ ...p, status: e.target.value }))}>
           {Object.keys(STATUS_COLOR).map(s => <option key={s}>{s}</option>)}
         </select>
-        <SyncBadge syncState={syncState} syncMsg={syncMsg} isReady={isReady}
-          onManualFetch={onManualFetch} onOpenSetting={onOpenSetting} />
+        <SyncBadge syncState={syncState} syncMsg={syncMsg}
+          onManualFetch={onManualFetch} user={user} onSignOut={onSignOut} />
       </div>
       {/* タブ */}
       <div className="border-b border-gray-800 px-3 flex overflow-x-auto">
@@ -1224,236 +1225,185 @@ function Notes({ project, updateProject }) {
   );
 }
 
+
 // ═══════════════════════════════════════════════════════════
-// GitHub Gist 同期
+// Supabase Auth + DB 同期
 // ═══════════════════════════════════════════════════════════
-const GIST_KEY   = "scenario_koubo_gist_v1";   // { token, gistId }
-const GIST_FILE  = "scenario_koubo_data.json";
-const DEBOUNCE   = 4000; // ms
+const DEBOUNCE = 4000;
 
-const gistLoad  = () => { try { return JSON.parse(localStorage.getItem(GIST_KEY) || "null") || {}; } catch { return {}; } };
-const gistSave  = (v) => localStorage.setItem(GIST_KEY, JSON.stringify(v));
+// ログイン画面
+function AuthScreen({ onLogin }) {
+  const [mode,     setMode]     = useState("login"); // login | signup
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [msg,      setMsg]      = useState("");
 
-const gistHeaders = (token) => ({
-  Authorization: `Bearer ${token}`,
-  "Content-Type": "application/json",
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-});
-
-async function gistFetch(gistId, token) {
-  const r = await fetch(`https://api.github.com/gists/${gistId}`, { headers: gistHeaders(token) });
-  if (!r.ok) throw new Error(`Gist取得失敗 (${r.status})`);
-  const j = await r.json();
-  const raw = j.files?.[GIST_FILE]?.content;
-  if (!raw) throw new Error("ファイルが見つかりません");
-  return JSON.parse(raw);
-}
-
-async function gistPatch(gistId, token, data) {
-  const r = await fetch(`https://api.github.com/gists/${gistId}`, {
-    method: "PATCH",
-    headers: gistHeaders(token),
-    body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify(data) } } }),
-  });
-  if (!r.ok) throw new Error(`Gist更新失敗 (${r.status})`);
-}
-
-async function gistCreate(token, data) {
-  const r = await fetch("https://api.github.com/gists", {
-    method: "POST",
-    headers: gistHeaders(token),
-    body: JSON.stringify({
-      description: "シナリオ工房 データ",
-      public: false,
-      files: { [GIST_FILE]: { content: JSON.stringify(data) } },
-    }),
-  });
-  if (!r.ok) throw new Error(`Gist作成失敗 (${r.status})`);
-  const j = await r.json();
-  return j.id;
-}
-
-// Gist同期フック
-function useGistSync(data, setData) {
-  const [cfg,       setCfgRaw]   = useState(gistLoad);   // { token, gistId }
-  const [syncState, setSyncState] = useState("idle");     // idle | saving | saved | error | loading
-  const [syncMsg,   setSyncMsg]   = useState("");
-  const [showSetting, setShowSetting] = useState(false);
-  const timerRef = useRef(null);
-  const prevDataRef = useRef(null);
-
-  const setCfg = (v) => { setCfgRaw(v); gistSave(v); };
-
-  const isReady = !!(cfg.token && cfg.gistId);
-
-  // 起動時にGistからデータを読み込む
-  useEffect(() => {
-    if (!cfg.token || !cfg.gistId) return;
-    setSyncState("loading");
-    gistFetch(cfg.gistId, cfg.token)
-      .then(remote => {
-        setData(remote);
-        prevDataRef.current = JSON.stringify(remote);
-        setSyncState("saved");
-        setSyncMsg("Gistから読み込みました");
-        setTimeout(() => setSyncState("idle"), 2500);
-      })
-      .catch(e => {
-        setSyncState("error");
-        setSyncMsg(e.message);
-      });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 起動時1回のみ
-
-  // データ変更時にデバウンス保存
-  useEffect(() => {
-    if (!isReady) return;
-    const current = JSON.stringify(data);
-    if (prevDataRef.current === current) return; // 変化なし（Gist読み込み直後など）
-    setSyncState("saving");
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      try {
-        await gistPatch(cfg.gistId, cfg.token, data);
-        prevDataRef.current = current;
-        setSyncState("saved");
-        setSyncMsg("Gistに保存しました");
-        setTimeout(() => setSyncState("idle"), 2500);
-      } catch (e) {
-        setSyncState("error");
-        setSyncMsg(e.message);
-      }
-    }, DEBOUNCE);
-    return () => clearTimeout(timerRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
-
-  // 手動同期（Gistから読み込み）
-  const manualFetch = async () => {
-    if (!isReady) return;
-    setSyncState("loading");
+  const handleEmail = async () => {
+    if (!email || !password) { setMsg("❌ メールとパスワードを入力してください"); return; }
+    setLoading(true); setMsg("");
     try {
-      const remote = await gistFetch(cfg.gistId, cfg.token);
-      setData(remote);
-      prevDataRef.current = JSON.stringify(remote);
-      setSyncState("saved");
-      setSyncMsg("最新データを読み込みました");
-      setTimeout(() => setSyncState("idle"), 2500);
-    } catch (e) { setSyncState("error"); setSyncMsg(e.message); }
+      if (mode === "signup") {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        setMsg("✅ 確認メールを送信しました。メールのリンクをクリックしてログインしてください。");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      }
+    } catch (e) {
+      setMsg("❌ " + (e.message === "Invalid login credentials" ? "メールまたはパスワードが違います" : e.message));
+    }
+    setLoading(false);
   };
 
-  return { cfg, setCfg, syncState, syncMsg, showSetting, setShowSetting, isReady, manualFetch, gistCreate };
-}
-
-// 同期ステータスバッジ
-function SyncBadge({ syncState, syncMsg, onManualFetch, onOpenSetting, isReady }) {
-  const MAP = {
-    idle:    { label: isReady ? "✓ Gist同期中" : "⚠ Gist未設定", color: isReady ? "text-green-400" : "text-yellow-500" },
-    saving:  { label: "⟳ 保存中…",     color: "text-amber-400 animate-pulse" },
-    saved:   { label: `✓ ${syncMsg}`,  color: "text-green-400" },
-    loading: { label: "⟳ 読み込み中…", color: "text-amber-400 animate-pulse" },
-    error:   { label: `✕ ${syncMsg}`,  color: "text-red-400" },
+  const handleGoogle = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + window.location.pathname },
+    });
+    if (error) { setMsg("❌ " + error.message); setLoading(false); }
   };
-  const { label, color } = MAP[syncState] || MAP.idle;
 
   return (
-    <div className="flex items-center gap-2">
-      <span className={`text-xs ${color} hidden sm:inline`}>{label}</span>
-      {isReady && (
-        <button title="Gistから再読み込み" className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onManualFetch}>↓</button>
-      )}
-      <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onOpenSetting}>
-        {isReady ? "⚙" : "🔗 Gist設定"}
-      </button>
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-2">🎬</div>
+          <h1 className="text-2xl font-bold text-amber-400 tracking-widest">シナリオ工房</h1>
+          <p className="text-xs text-gray-500 mt-1">映画・ドラマ脚本制作ツール</p>
+        </div>
+
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+          {/* モード切り替え */}
+          <div className="flex gap-1 bg-gray-800 rounded-lg p-1">
+            {[["login","ログイン"],["signup","新規登録"]].map(([m, label]) => (
+              <button key={m} className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors cursor-pointer ${mode === m ? "bg-amber-600 text-black" : "text-gray-400 hover:text-white"}`}
+                onClick={() => { setMode(m); setMsg(""); }}>{label}</button>
+            ))}
+          </div>
+
+          {/* Googleログイン */}
+          <button className="w-full flex items-center justify-center gap-2 py-2.5 border border-gray-700 rounded-lg text-sm text-gray-300 hover:border-gray-500 hover:text-white transition-colors cursor-pointer bg-transparent"
+            onClick={handleGoogle} disabled={loading}>
+            <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.93 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Googleでログイン
+          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-gray-800" />
+            <span className="text-xs text-gray-600">または</span>
+            <div className="flex-1 h-px bg-gray-800" />
+          </div>
+
+          {/* メール/パスワード */}
+          <div className="space-y-3">
+            <div>
+              <label className={cx.lbl}>メールアドレス</label>
+              <input className={cx.input} type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="your@email.com" onKeyDown={e => e.key === "Enter" && handleEmail()} />
+            </div>
+            <div>
+              <label className={cx.lbl}>パスワード（6文字以上）</label>
+              <input className={cx.input} type="password" value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleEmail()} />
+            </div>
+          </div>
+
+          {msg && <p className={`text-xs ${msg.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>{msg}</p>}
+
+          <button className={`w-full ${cx.btn} ${cx.pri} py-2.5`} onClick={handleEmail} disabled={loading}>
+            {loading ? "処理中…" : mode === "login" ? "ログイン" : "アカウント作成"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-// Gist設定モーダル
-function GistSettingsModal({ cfg, setCfg, data, onClose, gistCreate }) {
-  const [token,   setToken]   = useState(cfg.token  || "");
-  const [gistId,  setGistId]  = useState(cfg.gistId || "");
-  const [status,  setStatus]  = useState("");
-  const [loading, setLoading] = useState(false);
+// Supabase DB 同期フック
+function useSupabaseSync(data, setData, user) {
+  const [syncState, setSyncState] = useState("idle");
+  const [syncMsg,   setSyncMsg]   = useState("");
+  const timerRef    = useRef(null);
+  const prevDataRef = useRef(null);
+  const initializedRef = useRef(false);
 
-  const handleConnect = async () => {
-    if (!token.trim()) { setStatus("❌ PATを入力してください"); return; }
-    setLoading(true); setStatus("確認中…");
-    try {
-      let id = gistId.trim();
-      if (!id) {
-        // 新規Gistを作成
-        id = await gistCreate(token.trim(), data);
-        setGistId(id);
-        setStatus(`✅ Gistを新規作成しました（ID: ${id}）`);
-      } else {
-        // 既存Gistを確認
-        await gistFetch(id, token.trim());
-        setStatus("✅ 既存Gistに接続しました");
-      }
-      setCfg({ token: token.trim(), gistId: id });
-    } catch (e) { setStatus(`❌ ${e.message}`); }
-    finally { setLoading(false); }
+  // 初回ロード
+  useEffect(() => {
+    if (!user || initializedRef.current) return;
+    initializedRef.current = true;
+    setSyncState("loading");
+    supabase.from("user_data").select("data").eq("user_id", user.id).single()
+      .then(({ data: row, error }) => {
+        if (error && error.code !== "PGRST116") {
+          setSyncState("error"); setSyncMsg("読み込み失敗: " + error.message); return;
+        }
+        if (row) {
+          setData(row.data);
+          prevDataRef.current = JSON.stringify(row.data);
+        } else {
+          prevDataRef.current = JSON.stringify(data);
+        }
+        setSyncState("saved"); setSyncMsg("読み込みました");
+        setTimeout(() => setSyncState("idle"), 2000);
+      });
+  }, [user]);
+
+  // データ変更時デバウンス保存
+  useEffect(() => {
+    if (!user || !initializedRef.current) return;
+    const current = JSON.stringify(data);
+    if (prevDataRef.current === current) return;
+    setSyncState("saving");
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      const { error } = await supabase.from("user_data").upsert(
+        { user_id: user.id, data, updated_at: new Date().toISOString() },
+        { onConflict: "user_id" }
+      );
+      if (error) { setSyncState("error"); setSyncMsg(error.message); return; }
+      prevDataRef.current = current;
+      setSyncState("saved"); setSyncMsg("保存しました");
+      setTimeout(() => setSyncState("idle"), 2000);
+    }, DEBOUNCE);
+    return () => clearTimeout(timerRef.current);
+  }, [data, user]);
+
+  const manualFetch = async () => {
+    if (!user) return;
+    setSyncState("loading");
+    const { data: row, error } = await supabase.from("user_data").select("data").eq("user_id", user.id).single();
+    if (error) { setSyncState("error"); setSyncMsg(error.message); return; }
+    if (row) { setData(row.data); prevDataRef.current = JSON.stringify(row.data); }
+    setSyncState("saved"); setSyncMsg("最新データを読み込みました");
+    setTimeout(() => setSyncState("idle"), 2000);
   };
 
-  const handleDisconnect = () => {
-    if (!confirm("Gist同期を解除しますか？（ローカルデータは消えません）")) return;
-    setCfg({});
-    setToken(""); setGistId(""); setStatus("解除しました");
-  };
+  return { syncState, syncMsg, manualFetch };
+}
 
+// 同期ステータスバッジ
+function SyncBadge({ syncState, syncMsg, onManualFetch, user, onSignOut }) {
+  const MAP = {
+    idle:    { label: "✓ 同期中",       color: "text-green-400" },
+    saving:  { label: "⟳ 保存中…",      color: "text-amber-400 animate-pulse" },
+    saved:   { label: `✓ ${syncMsg}`,   color: "text-green-400" },
+    loading: { label: "⟳ 読み込み中…",  color: "text-amber-400 animate-pulse" },
+    error:   { label: `✕ ${syncMsg}`,   color: "text-red-400" },
+  };
+  const { label, color } = MAP[syncState] || MAP.idle;
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6 shadow-2xl"
-        onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="font-bold text-white text-lg">🔗 GitHub Gist 設定</h2>
-          <button className="text-gray-500 hover:text-white" onClick={onClose}>✕</button>
+    <div className="flex items-center gap-2">
+      <span className={`text-xs ${color} hidden sm:inline`}>{label}</span>
+      <button title="再読み込み" className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onManualFetch}>↓</button>
+      {user && (
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-500 hidden sm:inline truncate max-w-28">{user.email || "ログイン中"}</span>
+          <button className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onSignOut}>ログアウト</button>
         </div>
-
-        <div className="space-y-4 text-sm">
-          {/* PAT */}
-          <div>
-            <label className={cx.lbl}>Personal Access Token（Gist スコープ）</label>
-            <input className={cx.input} type="password" value={token} onChange={e => setToken(e.target.value)}
-              placeholder="ghp_xxxxxxxxxxxx" />
-            <p className="text-xs text-gray-500 mt-1">
-              <a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" rel="noreferrer"
-                className="text-amber-400 underline">GitHub → Settings → Tokens → New token</a>
-              {" "}で「gist」スコープにチェック → 生成
-            </p>
-          </div>
-
-          {/* Gist ID */}
-          <div>
-            <label className={cx.lbl}>Gist ID（空白なら自動作成）</label>
-            <input className={cx.input} value={gistId} onChange={e => setGistId(e.target.value)}
-              placeholder="例: a1b2c3d4e5f6… （既存Gistを使う場合）" />
-            <p className="text-xs text-gray-500 mt-1">
-              別デバイスで使う場合は、このIDを控えておくと引き継げます。
-            </p>
-          </div>
-
-          {/* ステータス */}
-          {status && <p className={`text-sm ${status.startsWith("✅") ? "text-green-400" : status.startsWith("❌") ? "text-red-400" : "text-gray-400"}`}>{status}</p>}
-
-          {/* 注意 */}
-          <div className="bg-gray-800/60 rounded-lg p-3 text-xs text-gray-400">
-            ⚠️ PATはlocalStorageに保存されます。共有PCでは使用しないでください。
-          </div>
-
-          {/* ボタン */}
-          <div className="flex gap-2 pt-1">
-            <button className={`${cx.btn} ${cx.pri} flex-1`} onClick={handleConnect} disabled={loading}>
-              {loading ? "処理中…" : cfg.gistId ? "再接続" : "接続・作成"}
-            </button>
-            {cfg.gistId && (
-              <button className={`${cx.btn} ${cx.ghost}`} onClick={handleDisconnect}>解除</button>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1462,15 +1412,35 @@ function GistSettingsModal({ cfg, setCfg, data, onClose, gistCreate }) {
 // ROOT
 // ═══════════════════════════════════════════════════════════
 export default function App() {
-  const [data,      setData]    = useState(load);
+  const [data,      setData]      = useState(load);
   const [currentId, setCurrentId] = useState(null);
   const [activeTab, setActiveTab] = useState("tenchiJin");
+  const [user,      setUser]      = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
   // ローカル保存
   useEffect(() => { save(data); }, [data]);
 
-  // Gist同期
-  const gist = useGistSync(data, setData);
+  // Auth状態監視
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthReady(true);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setCurrentId(null);
+    setData({ projects: [] });
+  };
+
+  // Supabase同期
+  const sync = useSupabaseSync(data, setData, user);
 
   const currentProject = data.projects.find(p => p.id === currentId);
 
@@ -1480,41 +1450,33 @@ export default function App() {
 
   const openProject = (id) => { setCurrentId(id); setActiveTab("tenchiJin"); };
 
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-amber-400 text-sm animate-pulse">読み込み中…</div>
+      </div>
+    );
+  }
+
+  if (!user) return <AuthScreen onLogin={setUser} />;
+
+  const syncProps = {
+    syncState: sync.syncState, syncMsg: sync.syncMsg,
+    onManualFetch: sync.manualFetch, user, onSignOut: handleSignOut,
+  };
+
   return (
     <>
-      {/* Gist設定モーダル */}
-      {gist.showSetting && (
-        <GistSettingsModal
-          cfg={gist.cfg}
-          setCfg={gist.setCfg}
-          data={data}
-          onClose={() => gist.setShowSetting(false)}
-          gistCreate={gistCreate}
-        />
-      )}
-
       {(!currentId || !currentProject) ? (
-        <HomeScreen
-          data={data} setData={setData} onOpen={openProject}
-          syncState={gist.syncState} syncMsg={gist.syncMsg}
-          isReady={gist.isReady}
-          onManualFetch={gist.manualFetch}
-          onOpenSetting={() => gist.setShowSetting(true)}
-        />
+        <HomeScreen data={data} setData={setData} onOpen={openProject} {...syncProps} />
       ) : (
         <ProjectScreen
-          project={currentProject}
-          updateProject={updateProject}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          onBack={() => setCurrentId(null)}
-          syncState={gist.syncState}
-          syncMsg={gist.syncMsg}
-          isReady={gist.isReady}
-          onManualFetch={gist.manualFetch}
-          onOpenSetting={() => gist.setShowSetting(true)}
+          project={currentProject} updateProject={updateProject}
+          activeTab={activeTab} setActiveTab={setActiveTab}
+          onBack={() => setCurrentId(null)} {...syncProps}
         />
       )}
     </>
   );
 }
+
