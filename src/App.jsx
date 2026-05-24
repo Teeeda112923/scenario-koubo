@@ -1,5 +1,29 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useContext, createContext } from "react";
 import { supabase } from "./supabase";
+
+// ─── テーマContext ────────────────────────────────────────
+const ThemeCtx = createContext(true); // true = dark
+const THEME_STORE = "scenario_koubo_theme";
+
+// ペンカラー（ナイト / デイ）
+const DRAW_COLORS_DARK = [
+  { v: "#f5f5f4", label: "白" },
+  { v: "#fbbf24", label: "黄" },
+  { v: "#f87171", label: "赤" },
+  { v: "#60a5fa", label: "青" },
+  { v: "#4ade80", label: "緑" },
+  { v: "#c084fc", label: "紫" },
+];
+const DRAW_COLORS_LIGHT = [
+  { v: "#1a1a1a", label: "黒" },
+  { v: "#d97706", label: "橙" },
+  { v: "#dc2626", label: "赤" },
+  { v: "#2563eb", label: "青" },
+  { v: "#16a34a", label: "緑" },
+  { v: "#9333ea", label: "紫" },
+];
+const CANVAS_BG_DARK  = "#111827";
+const CANVAS_BG_LIGHT = "#f9fafb";
 
 // ─── ユーティリティ ───────────────────────────────────────
 const genId = () => Math.random().toString(36).slice(2, 9);
@@ -69,7 +93,7 @@ const SCENE_TYPE = {
 // ═══════════════════════════════════════════════════════════
 // HOME
 // ═══════════════════════════════════════════════════════════
-function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, user, onSignOut }) {
+function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
   const [newTitle, setNewTitle] = useState("");
   const fileRef = useRef();
 
@@ -114,6 +138,9 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, 
           <p className="text-xs text-gray-500 mt-0.5">映画・ドラマ脚本制作ツール</p>
         </div>
         <div className="flex gap-2 items-center">
+          <button title={isDark ? "デイモードに切り替え" : "ナイトモードに切り替え"}
+            className={`${cx.btn} ${cx.ghost} text-base px-2 py-1`}
+            onClick={onToggleTheme}>{isDark ? "☀" : "🌙"}</button>
           <SyncBadge syncState={syncState} syncMsg={syncMsg}
             onManualFetch={onManualFetch} user={user} onSignOut={onSignOut} />
           <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={importData} />
@@ -179,7 +206,7 @@ const TABS = (useEmotionCurve) => [
   { id: "sketches",     label: "✏ スケッチ" },
 ];
 
-function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, onManualFetch, user, onSignOut }) {
+function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
   return (
     <div className={cx.page}>
       {/* ヘッダー */}
@@ -195,6 +222,9 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
           value={project.status} onChange={e => updateProject(p => ({ ...p, status: e.target.value }))}>
           {Object.keys(STATUS_COLOR).map(s => <option key={s}>{s}</option>)}
         </select>
+        <button title={isDark ? "デイモードに切り替え" : "ナイトモードに切り替え"}
+          className={`${cx.btn} ${cx.ghost} text-base px-2 py-1`}
+          onClick={onToggleTheme}>{isDark ? "☀" : "🌙"}</button>
         <SyncBadge syncState={syncState} syncMsg={syncMsg}
           onManualFetch={onManualFetch} user={user} onSignOut={onSignOut} />
       </div>
@@ -788,22 +818,17 @@ function DrawSection({ cardClass="", icon, label, hint, textValue, onTextChange,
 // ═══════════════════════════════════════════════════════════
 // 手書き — DrawingModal
 // ═══════════════════════════════════════════════════════════
-const DRAW_COLORS = [
-  { v: "#f5f5f4", label: "白" },
-  { v: "#fbbf24", label: "黄" },
-  { v: "#f87171", label: "赤" },
-  { v: "#60a5fa", label: "青" },
-  { v: "#4ade80", label: "緑" },
-  { v: "#c084fc", label: "紫" },
-];
 const DRAW_SIZES = [
   { v: 2,  label: "細" },
   { v: 5,  label: "中" },
   { v: 12, label: "太" },
 ];
-const BG_COLOR = "#111827";
 
 function DrawingModal({ initialDataUrl, onSave, onClose }) {
+  // テーマに応じてキャンバス背景とペンカラーを切り替え
+  const isDark      = useContext(ThemeCtx);
+  const BG_COLOR    = isDark ? CANVAS_BG_DARK  : CANVAS_BG_LIGHT;
+  const DRAW_COLORS = isDark ? DRAW_COLORS_DARK : DRAW_COLORS_LIGHT;
   const canvasRef       = useRef(null);
   const ctxRef          = useRef(null);   // DPR対応済みcontext
   const dprRef          = useRef(1);      // devicePixelRatio
@@ -1720,6 +1745,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("tenchiJin");
   const [user,      setUser]      = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [isDark,    setIsDark]    = useState(() => localStorage.getItem(THEME_STORE) !== "light");
+
+  // テーマ切り替え
+  const toggleTheme = () => setIsDark(d => {
+    const next = !d;
+    localStorage.setItem(THEME_STORE, next ? "dark" : "light");
+    document.documentElement.classList.toggle("light-mode", !next);
+    return next;
+  });
+
+  // 初回テーマ適用
+  useEffect(() => {
+    document.documentElement.classList.toggle("light-mode", !isDark);
+  }, []);
 
   // ローカル保存
   useEffect(() => { save(data); }, [data]);
@@ -1768,17 +1807,19 @@ export default function App() {
     onManualFetch: sync.manualFetch, user, onSignOut: handleSignOut,
   };
 
+  const themeProps = { isDark, onToggleTheme: toggleTheme };
+
   return (
-    <>
+    <ThemeCtx.Provider value={isDark}>
       {(!currentId || !currentProject) ? (
-        <HomeScreen data={data} setData={setData} onOpen={openProject} {...syncProps} />
+        <HomeScreen data={data} setData={setData} onOpen={openProject} {...syncProps} {...themeProps} />
       ) : (
         <ProjectScreen
           project={currentProject} updateProject={updateProject}
           activeTab={activeTab} setActiveTab={setActiveTab}
-          onBack={() => setCurrentId(null)} {...syncProps}
+          onBack={() => setCurrentId(null)} {...syncProps} {...themeProps}
         />
       )}
-    </>
+    </ThemeCtx.Provider>
   );
 }

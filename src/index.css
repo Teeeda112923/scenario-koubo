@@ -2,6 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── ライトモード上書き ─── */
+.light-mode { color-scheme: light; }
+.light-mode .bg-gray-950  { background-color: #f8fafc !important; }
+.light-mode .bg-gray-900  { background-color: #ffffff !important; }
+.light-mode .bg-gray-800  { background-color: #f1f5f9 !important; }
+.light-mode .bg-gray-700  { background-color: #e2e8f0 !important; }
+.light-mode .bg-gray-800\/60 { background-color: rgba(226,232,240,0.9) !important; }
+.light-mode .bg-gray-800\/40 { background-color: rgba(226,232,240,0.7) !important; }
+.light-mode .bg-gray-800\/30 { background-color: rgba(226,232,240,0.5) !important; }
+.light-mode .bg-gray-900\/50 { background-color: rgba(255,255,255,0.8) !important; }
+.light-mode .bg-gray-950\/70 { background-color: rgba(248,250,252,0.7) !important; }
+.light-mode .bg-black\/70  { background-color: rgba(0,0,0,0.5) !important; }
+.light-mode .bg-black\/90  { background-color: rgba(248,250,252,0.97) !important; }
+.light-mode .bg-gray-950.flex { background-color: #f8fafc !important; } /* loading */
+
+.light-mode .text-gray-100 { color: #0f172a !important; }
+.light-mode .text-gray-300 { color: #475569 !important; }
+.light-mode .text-gray-400 { color: #64748b !important; }
+.light-mode .text-gray-500 { color: #94a3b8 !important; }
+.light-mode .text-gray-600 { color: #475569 !important; }
+.light-mode .text-white    { color: #0f172a !important; }
+
+.light-mode .border-gray-800 { border-color: #e2e8f0 !important; }
+.light-mode .border-gray-700 { border-color: #cbd5e1 !important; }
+
+.light-mode .hover\:text-white:hover      { color: #0f172a !important; }
+.light-mode .hover\:text-gray-300:hover   { color: #334155 !important; }
+.light-mode .hover\:bg-gray-800:hover     { background-color: #f1f5f9 !important; }
+.light-mode .hover\:bg-gray-700:hover     { background-color: #e2e8f0 !important; }
+.light-mode .hover\:border-gray-600:hover { border-color: #94a3b8 !important; }
+.light-mode .hover\:border-gray-500:hover { border-color: #64748b !important; }
+
+.light-mode .bg-blue-900\/50  { background-color: #dbeafe !important; }
+.light-mode .bg-amber-900\/50 { background-color: #fef3c7 !important; }
+.light-mode .bg-green-900\/50 { background-color: #dcfce7 !important; }
+.light-mode .text-blue-300    { color: #1d4ed8 !important; }
+.light-mode .text-amber-300   { color: #b45309 !important; }
+.light-mode .text-green-300   { color: #15803d !important; }
+.light-mode .text-amber-400   { color: #d97706 !important; }
+.light-mode .text-amber-500   { color: #d97706 !important; }
+.light-mode .text-purple-300  { color: #7c3aed !important; }
+.light-mode .text-red-400     { color: #dc2626 !important; }
+
+.light-mode .bg-amber-900\/60 { background-color: #fef3c7 !important; }
+.light-mode .text-amber-300   { color: #b45309 !important; }
+
+.light-mode select { color: #0f172a !important; }
+.light-mode option { background-color: #ffffff !important; color: #0f172a !important; }
+
 /* スクロールバーのカスタマイズ */
 * {
   scrollbar-width: thin;
