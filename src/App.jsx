@@ -54,7 +54,14 @@ const createProject = (title = "新しい作品") => ({
   notes: [],
   sketches: [],
 });
-const createCharacter = () => ({ id: genId(), name: "", age: "", role: "主要", appearance: "", personality: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "", drawingDataUrl: null });
+const createCharacter = () => ({
+  id: genId(), name: "", age: "", role: "主要",
+  appearance: "", personality: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "",
+  drawingDataUrl: null,
+  // 各フィールドの手書きデータ
+  name_d: null, age_d: null, appearance_d: null, personality_d: null,
+  motivation_d: null, secret_d: null, relation_d: null, arcStart_d: null, arcEnd_d: null,
+});
 const createScene    = () => ({ id: genId(), location: "", time: "昼", characters: "", content: "", purpose: "", type: "daily", emotion: 0, drawingDataUrl: null });
 const createSketch   = (title = "") => ({ id: genId(), title, drawingDataUrl: null, createdAt: new Date().toISOString() });
 const createEpisode = (n = 1) => ({ id: genId(), name: `エピソード${n}`, scenes: [] });
@@ -93,7 +100,7 @@ const SCENE_TYPE = {
 // ═══════════════════════════════════════════════════════════
 // HOME
 // ═══════════════════════════════════════════════════════════
-function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
+function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isOnline, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
   const [newTitle, setNewTitle] = useState("");
   const fileRef = useRef();
 
@@ -141,7 +148,7 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, onManualFetch, 
           <button title={isDark ? "デイモードに切り替え" : "ナイトモードに切り替え"}
             className={`${cx.btn} ${cx.ghost} text-base px-2 py-1`}
             onClick={onToggleTheme}>{isDark ? "☀" : "🌙"}</button>
-          <SyncBadge syncState={syncState} syncMsg={syncMsg}
+          <SyncBadge syncState={syncState} syncMsg={syncMsg} isOnline={isOnline}
             onManualFetch={onManualFetch} user={user} onSignOut={onSignOut} />
           <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={importData} />
           <button className={`${cx.btn} ${cx.ghost}`} onClick={() => fileRef.current.click()}>📥 インポート</button>
@@ -213,7 +220,7 @@ const TABS = (useEmotionCurve) => [
   { id: "sketches",     label: "✏ スケッチ" },
 ];
 
-function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
+function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, isOnline, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
   return (
     <div className={cx.page}>
       {/* ヘッダー */}
@@ -232,7 +239,7 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
         <button title={isDark ? "デイモードに切り替え" : "ナイトモードに切り替え"}
           className={`${cx.btn} ${cx.ghost} text-base px-2 py-1`}
           onClick={onToggleTheme}>{isDark ? "☀" : "🌙"}</button>
-        <SyncBadge syncState={syncState} syncMsg={syncMsg}
+        <SyncBadge syncState={syncState} syncMsg={syncMsg} isOnline={isOnline}
           onManualFetch={onManualFetch} user={user} onSignOut={onSignOut} />
       </div>
       {/* タブ */}
@@ -381,41 +388,49 @@ function Characters({ project, updateProject }) {
             <span className="font-semibold text-amber-400 text-sm">キャラクター編集</span>
             <button className="text-gray-500 hover:text-white text-xs" onClick={() => setEditId(null)}>✕ 閉じる</button>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { k: "name",        lbl: "名前",                   full: true,  type: "input" },
-              { k: "age",         lbl: "年齢",                   full: false, type: "input" },
-              { k: "role",        lbl: "役割",                   full: false, type: "select", opts: ROLES },
-              { k: "appearance",  lbl: "外見・印象",             full: true,  type: "ta",    rows: 2 },
-              { k: "personality", lbl: "性格",                   full: true,  type: "ta",    rows: 2 },
-              { k: "motivation",  lbl: "動機（何が欲しいか）",   full: true,  type: "ta",    rows: 2 },
-              { k: "secret",      lbl: "秘密・隠された面",       full: true,  type: "ta",    rows: 2 },
-              { k: "relation",    lbl: "主人公との関係",         full: true,  type: "input" },
-              { k: "arcStart",    lbl: "物語開始の状態（弧 起）", full: false, type: "input" },
-              { k: "arcEnd",      lbl: "物語終了の状態（弧 結）", full: false, type: "input" },
-            ].map(({ k, lbl, full, type, opts, rows }) => (
-              <div key={k} className={full ? "col-span-2" : ""}>
-                <label className={cx.lbl}>{lbl}</label>
-                {type === "input" && <input className={cx.input} value={editing[k]} onChange={e => setC(editing.id, k, e.target.value)} />}
-                {type === "ta"    && <textarea className={cx.ta} rows={rows} value={editing[k]} onChange={e => setC(editing.id, k, e.target.value)} />}
-                {type === "select" && (
-                  <select className={cx.input} value={editing[k]} onChange={e => setC(editing.id, k, e.target.value)}>
-                    {opts.map(o => <option key={o}>{o}</option>)}
-                  </select>
-                )}
+          <div className="space-y-3">
+            {/* 役割（セレクトのみ） */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={cx.lbl}>役割</label>
+                <select className={cx.input} value={editing.role} onChange={e => setC(editing.id, "role", e.target.value)}>
+                  {ROLES.map(o => <option key={o}>{o}</option>)}
+                </select>
               </div>
-            ))}
-            <div className="col-span-2">
-              <DrawSection
-                label="ラフスケッチ" rows={4}
-                hint="外見・服装・イメージボードなど自由に"
-                textValue=""
-                onTextChange={() => {}}
-                drawDataUrl={editing.drawingDataUrl}
-                onDrawSave={dataUrl => setC(editing.id, "drawingDataUrl", dataUrl)}
-                onDrawClear={() => setC(editing.id, "drawingDataUrl", null)}
-              />
             </div>
+
+            {/* DrawSectionフィールド */}
+            {[
+              { k: "name",        dk: "name_d",        lbl: "名前",                    rows: 2 },
+              { k: "age",         dk: "age_d",         lbl: "年齢",                    rows: 2 },
+              { k: "appearance",  dk: "appearance_d",  lbl: "外見・印象",              rows: 3 },
+              { k: "personality", dk: "personality_d", lbl: "性格",                    rows: 3 },
+              { k: "motivation",  dk: "motivation_d",  lbl: "動機（何が欲しいか）",    rows: 3 },
+              { k: "secret",      dk: "secret_d",      lbl: "秘密・隠された面",        rows: 3 },
+              { k: "relation",    dk: "relation_d",    lbl: "主人公との関係",           rows: 2 },
+              { k: "arcStart",    dk: "arcStart_d",    lbl: "物語開始の状態（弧 起）", rows: 2 },
+              { k: "arcEnd",      dk: "arcEnd_d",      lbl: "物語終了の状態（弧 結）", rows: 2 },
+            ].map(({ k, dk, lbl, rows }) => (
+              <DrawSection key={k}
+                label={lbl} rows={rows}
+                textValue={editing[k] || ""}
+                onTextChange={v => setC(editing.id, k, v)}
+                drawDataUrl={editing[dk] || null}
+                onDrawSave={dataUrl => setC(editing.id, dk, dataUrl)}
+                onDrawClear={() => setC(editing.id, dk, null)}
+              />
+            ))}
+
+            {/* ラフスケッチ */}
+            <DrawSection
+              label="ラフスケッチ" rows={5}
+              hint="外見・服装・イメージボードなど自由に"
+              textValue=""
+              onTextChange={() => {}}
+              drawDataUrl={editing.drawingDataUrl}
+              onDrawSave={dataUrl => setC(editing.id, "drawingDataUrl", dataUrl)}
+              onDrawClear={() => setC(editing.id, "drawingDataUrl", null)}
+            />
           </div>
         </div>
       )}
@@ -1720,21 +1735,62 @@ function AuthScreen({ onLogin }) {
 
 // Supabase DB 同期フック
 function useSupabaseSync(data, setData, user) {
-  const [syncState, setSyncState] = useState("idle");
-  const [syncMsg,   setSyncMsg]   = useState("");
-  const timerRef    = useRef(null);
-  const prevDataRef = useRef(null);
+  const [syncState,  setSyncState]  = useState("idle");
+  const [syncMsg,    setSyncMsg]    = useState("");
+  const [isOnline,   setIsOnline]   = useState(navigator.onLine);
+  const timerRef       = useRef(null);
+  const retryTimerRef  = useRef(null);
+  const prevDataRef    = useRef(null);
+  const pendingRef     = useRef(null); // オフライン中に保存できなかったデータ
   const initializedRef = useRef(false);
+
+  // オンライン/オフライン監視
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      // オンライン復帰時にペンディングデータをアップロード
+      if (pendingRef.current && user) {
+        setSyncState("saving"); setSyncMsg("");
+        supabase.from("user_data").upsert(
+          { user_id: user.id, data: pendingRef.current, updated_at: new Date().toISOString() },
+          { onConflict: "user_id" }
+        ).then(({ error }) => {
+          if (!error) {
+            prevDataRef.current = JSON.stringify(pendingRef.current);
+            pendingRef.current = null;
+            setSyncState("saved"); setSyncMsg("オンライン復帰 — 同期しました");
+            setTimeout(() => setSyncState("idle"), 2500);
+          }
+        });
+      }
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online",  onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [user]);
 
   // 初回ロード
   useEffect(() => {
     if (!user || initializedRef.current) return;
     initializedRef.current = true;
+    if (!navigator.onLine) {
+      // オフライン起動: localStorageのデータをそのまま使う
+      prevDataRef.current = JSON.stringify(data);
+      setSyncState("offline");
+      return;
+    }
     setSyncState("loading");
     supabase.from("user_data").select("data").eq("user_id", user.id).single()
       .then(({ data: row, error }) => {
         if (error && error.code !== "PGRST116") {
-          setSyncState("error"); setSyncMsg("読み込み失敗: " + error.message); return;
+          setSyncState("error"); setSyncMsg("読み込み失敗: ローカルデータを使用します");
+          prevDataRef.current = JSON.stringify(data);
+          setTimeout(() => setSyncState("idle"), 3000);
+          return;
         }
         if (row) {
           setData(row.data);
@@ -1752,15 +1808,29 @@ function useSupabaseSync(data, setData, user) {
     if (!user || !initializedRef.current) return;
     const current = JSON.stringify(data);
     if (prevDataRef.current === current) return;
-    setSyncState("saving");
     clearTimeout(timerRef.current);
+
+    if (!navigator.onLine) {
+      // オフライン中: ペンディングに積む（localStorageには既に保存済み）
+      pendingRef.current = data;
+      setSyncState("offline");
+      return;
+    }
+
+    setSyncState("saving");
     timerRef.current = setTimeout(async () => {
       const { error } = await supabase.from("user_data").upsert(
         { user_id: user.id, data, updated_at: new Date().toISOString() },
         { onConflict: "user_id" }
       );
-      if (error) { setSyncState("error"); setSyncMsg(error.message); return; }
+      if (error) {
+        // ネットワークエラー → ペンディングに積む
+        pendingRef.current = data;
+        setSyncState("offline");
+        return;
+      }
       prevDataRef.current = current;
+      pendingRef.current = null;
       setSyncState("saved"); setSyncMsg("保存しました");
       setTimeout(() => setSyncState("idle"), 2000);
     }, DEBOUNCE);
@@ -1769,6 +1839,7 @@ function useSupabaseSync(data, setData, user) {
 
   const manualFetch = async () => {
     if (!user) return;
+    if (!navigator.onLine) { setSyncState("offline"); return; }
     setSyncState("loading");
     const { data: row, error } = await supabase.from("user_data").select("data").eq("user_id", user.id).single();
     if (error) { setSyncState("error"); setSyncMsg(error.message); return; }
@@ -1777,23 +1848,32 @@ function useSupabaseSync(data, setData, user) {
     setTimeout(() => setSyncState("idle"), 2000);
   };
 
-  return { syncState, syncMsg, manualFetch };
+  return { syncState, syncMsg, isOnline, manualFetch };
 }
 
 // 同期ステータスバッジ
-function SyncBadge({ syncState, syncMsg, onManualFetch, user, onSignOut }) {
+function SyncBadge({ syncState, syncMsg, isOnline, onManualFetch, user, onSignOut }) {
   const MAP = {
-    idle:    { label: "✓ 同期中",       color: "text-green-400" },
-    saving:  { label: "⟳ 保存中…",      color: "text-amber-400 animate-pulse" },
-    saved:   { label: `✓ ${syncMsg}`,   color: "text-green-400" },
-    loading: { label: "⟳ 読み込み中…",  color: "text-amber-400 animate-pulse" },
-    error:   { label: `✕ ${syncMsg}`,   color: "text-red-400" },
+    idle:    { label: "✓ 同期済み",      color: "text-green-400" },
+    saving:  { label: "⟳ 保存中…",       color: "text-amber-400 animate-pulse" },
+    saved:   { label: `✓ ${syncMsg}`,    color: "text-green-400" },
+    loading: { label: "⟳ 読み込み中…",   color: "text-amber-400 animate-pulse" },
+    error:   { label: `⚠ ${syncMsg}`,    color: "text-yellow-500" },
+    offline: { label: "📴 オフライン",    color: "text-gray-400" },
   };
   const { label, color } = MAP[syncState] || MAP.idle;
   return (
     <div className="flex items-center gap-2">
+      {/* オフラインバナー */}
+      {!isOnline && (
+        <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full hidden sm:inline">
+          📴 オフライン — データはローカルに保存中
+        </span>
+      )}
       <span className={`text-xs ${color} hidden sm:inline`}>{label}</span>
-      <button title="再読み込み" className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onManualFetch}>↓</button>
+      {isOnline && (
+        <button title="再読み込み" className={`${cx.btn} ${cx.ghost} text-xs py-1 px-2`} onClick={onManualFetch}>↓</button>
+      )}
       {user && (
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500 hidden sm:inline truncate max-w-28">{user.email || "ログイン中"}</span>
@@ -1872,6 +1952,7 @@ export default function App() {
 
   const syncProps = {
     syncState: sync.syncState, syncMsg: sync.syncMsg,
+    isOnline: sync.isOnline,
     onManualFetch: sync.manualFetch, user, onSignOut: handleSignOut,
   };
 
