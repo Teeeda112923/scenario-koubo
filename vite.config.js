@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'シナリオ工房',
-        short_name: 'シナリオ工房',
-        description: '映画・ドラマ脚本制作ツール',
+        name: 'シナハコ',
+        short_name: 'シナハコ',
+        description: 'シナハコ — 映画・ドラマ脚本制作ツール',
         theme_color: '#0a0a0f',
         background_color: '#0a0a0f',
         display: 'standalone',

@@ -141,7 +141,7 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isOnline, onMan
       {/* ヘッダー */}
       <div className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-amber-400 tracking-widest">🎬 シナリオ工房</h1>
+          <h1 className="text-xl font-bold text-amber-400 tracking-widest">🎬 シナハコ</h1>
           <p className="text-xs text-gray-500 mt-0.5">映画・ドラマ脚本制作ツール</p>
         </div>
         <div className="flex gap-2 items-center">
@@ -199,7 +199,7 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isOnline, onMan
       {/* フッター */}
       <footer className="mt-auto border-t border-gray-800 py-4 text-center">
         <p className="text-xs text-gray-600">
-          © {new Date().getFullYear()} scenario-koubo
+          © {new Date().getFullYear()} シナハコ
         </p>
       </footer>
     </div>
