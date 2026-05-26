@@ -357,8 +357,12 @@ function Characters({ project, updateProject }) {
             className={`${cx.card} cursor-pointer transition-colors ${editId === c.id ? "border-amber-600" : "hover:border-gray-600"}`}
             onClick={() => setEditId(editId === c.id ? null : c.id)}>
             <div className="flex justify-between items-start mb-1">
-              <div>
-                <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
+              <div className="flex-1 min-w-0">
+                {c.name_d ? (
+                  <img src={c.name_d} alt="名前（手書き）" className="max-h-10 object-contain bg-transparent mb-0.5" />
+                ) : (
+                  <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
+                )}
                 <div className="text-xs text-gray-500">{c.age && `${c.age}歳 `}{c.role}</div>
               </div>
               <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0`}
