@@ -300,9 +300,9 @@ function TenchiJin({ project, updateProject }) {
   const set = (k, v) => updateProject(p => ({ ...p, tenchiJin: { ...p.tenchiJin, [k]: v } }));
   const t = project.tenchiJin;
   const items = [
-    { key: "ten",  icon: "☰", label: "天（テーマ）",  hint: "この作品が問いかけること・伝えたいメッセージ・核心的なテーマ", rows: 5 },
-    { key: "chi",  icon: "⬡", label: "地（世界観）",  hint: "時代・舞台・社会背景・世界のルールと制約",                     rows: 5 },
-    { key: "jin",  icon: "◉", label: "人（主人公）",  hint: "欲求・欠乏・変化の弧（arc）・核心的な葛藤",                   rows: 5 },
+    { key: "ten",  icon: "☰", label: "天（いつ）",    hint: "いつの時代の話か・時代背景・時間軸",     rows: 5 },
+    { key: "chi",  icon: "⬡", label: "地（どこ）",   hint: "どこが舞台か・場所・空間・環境",          rows: 5 },
+    { key: "jin",  icon: "◉", label: "人（誰）",     hint: "誰の話か・主人公・登場人物・関係性",      rows: 5 },
   ];
   return (
     <div className="max-w-2xl mx-auto space-y-4">
