@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useContext, createContext } from "react";
+import React, { useState, useEffect, useCallback, useRef, useContext, createContext } from "react";
 import { supabase } from "./supabase";
 
 // ─── テーマContext ────────────────────────────────────────
@@ -484,16 +484,37 @@ function Characters({ project, updateProject }) {
               { k: "arcStart",    dk: "arcStart_d",    lbl: "物語開始の状態（弧 起）", rows: 2 },
               { k: "arcEnd",      dk: "arcEnd_d",      lbl: "物語終了の状態（弧 結）", rows: 2 },
             ].map(({ k, dk, lbl, rows }) => (
-              <DrawSection key={k}
-                label={lbl} rows={rows}
-                textValue={editing[k] || ""}
-                onTextChange={v => setC(editing.id, k, v)}
-                drawDataUrl={editing[dk] || null}
-                onDrawSave={dk === "name_d"
-                  ? dataUrl => cropToInk(dataUrl, bgHex).then(cropped => setC(editing.id, dk, cropped))
-                  : dataUrl => setC(editing.id, dk, dataUrl)}
-                onDrawClear={() => setC(editing.id, dk, null)}
-              />
+              <React.Fragment key={k}>
+                <DrawSection
+                  label={lbl} rows={rows}
+                  textValue={editing[k] || ""}
+                  onTextChange={v => setC(editing.id, k, v)}
+                  drawDataUrl={editing[dk] || null}
+                  onDrawSave={dk === "name_d"
+                    ? dataUrl => cropToInk(dataUrl, bgHex).then(cropped => setC(editing.id, dk, cropped))
+                    : dataUrl => setC(editing.id, dk, dataUrl)}
+                  onDrawClear={() => setC(editing.id, dk, null)}
+                />
+                {k === "name" && editing[dk] && ("TextDetector" in window) && (
+                  <button
+                    className={`${cx.btn} ${cx.ghost} text-xs w-full`}
+                    onClick={async () => {
+                      try {
+                        const detector = new window.TextDetector();
+                        const img = new Image();
+                        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = editing[dk]; });
+                        const bitmap = await createImageBitmap(img);
+                        const results = await detector.detect(bitmap);
+                        bitmap.close();
+                        const text = results.map(r => r.rawValue).join("");
+                        if (text) setC(editing.id, k, text);
+                        else alert("文字を認識できませんでした");
+                      } catch { alert("テキスト認識に失敗しました"); }
+                    }}>
+                    🔤 手書きをテキストに変換（試験的）
+                  </button>
+                )}
+              </React.Fragment>
             ))}
 
             {/* ラフスケッチ */}
