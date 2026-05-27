@@ -495,29 +495,6 @@ function Characters({ project, updateProject }) {
                     : dataUrl => setC(editing.id, dk, dataUrl)}
                   onDrawClear={() => setC(editing.id, dk, null)}
                 />
-                {k === "name" && editing[dk] && (
-                  <button
-                    className={`${cx.btn} ${cx.ghost} text-xs w-full`}
-                    onClick={async () => {
-                      if (!("TextDetector" in window)) {
-                        alert("このブラウザはテキスト認識に対応していません");
-                        return;
-                      }
-                      try {
-                        const detector = new window.TextDetector();
-                        const img = new Image();
-                        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = editing[dk]; });
-                        const bitmap = await createImageBitmap(img);
-                        const results = await detector.detect(bitmap);
-                        bitmap.close();
-                        const text = results.map(r => r.rawValue).join("");
-                        if (text) setC(editing.id, k, text);
-                        else alert("文字を認識できませんでした");
-                      } catch { alert("テキスト認識に失敗しました"); }
-                    }}>
-                    🔤 手書きをテキストに変換（試験的）
-                  </button>
-                )}
               </React.Fragment>
             ))}
 
