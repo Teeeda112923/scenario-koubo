@@ -395,6 +395,7 @@ function Characters({ project, updateProject }) {
   const bgHex  = isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
   const [editId,    setEditId]    = useState(null);
   const [charDrawId, setCharDrawId] = useState(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
 
   const add = () => {
     const c = createCharacter();
@@ -495,6 +496,26 @@ function Characters({ project, updateProject }) {
                     : dataUrl => setC(editing.id, dk, dataUrl)}
                   onDrawClear={() => setC(editing.id, dk, null)}
                 />
+                {k === "name" && editing[dk] && (
+                  <button
+                    className={`${cx.btn} ${cx.ghost} text-xs w-full`}
+                    disabled={ocrLoading}
+                    onClick={async () => {
+                      setOcrLoading(true);
+                      try {
+                        const { createWorker } = await import("tesseract.js");
+                        const worker = await createWorker("jpn");
+                        const { data: { text } } = await worker.recognize(editing[dk]);
+                        await worker.terminate();
+                        const clean = text.trim().replace(/\s+/g, "");
+                        if (clean) setC(editing.id, k, clean);
+                        else alert("文字を認識できませんでした");
+                      } catch { alert("認識に失敗しました"); }
+                      finally { setOcrLoading(false); }
+                    }}>
+                    {ocrLoading ? "🔄 認識中（初回は30秒ほどかかります）..." : "🔤 手書きをテキストに変換"}
+                  </button>
+                )}
               </React.Fragment>
             ))}
 
