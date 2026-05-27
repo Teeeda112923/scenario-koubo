@@ -300,9 +300,9 @@ function TenchiJin({ project, updateProject }) {
   const set = (k, v) => updateProject(p => ({ ...p, tenchiJin: { ...p.tenchiJin, [k]: v } }));
   const t = project.tenchiJin;
   const items = [
-    { key: "ten",  icon: "☰", label: "天（テーマ）",  hint: "この作品が問いかけること・伝えたいメッセージ・核心的なテーマ", rows: 5 },
-    { key: "chi",  icon: "⬡", label: "地（世界観）",  hint: "時代・舞台・社会背景・世界のルールと制約",                     rows: 5 },
-    { key: "jin",  icon: "◉", label: "人（主人公）",  hint: "欲求・欠乏・変化の弧（arc）・核心的な葛藤",                   rows: 5 },
+    { key: "ten",  icon: "☰", label: "天（いつ）",    hint: "いつの時代の話か・時代背景・時間軸",     rows: 5 },
+    { key: "chi",  icon: "⬡", label: "地（どこ）",   hint: "どこが舞台か・場所・空間・環境",          rows: 5 },
+    { key: "jin",  icon: "◉", label: "人（誰）",     hint: "誰の話か・主人公・登場人物・関係性",      rows: 5 },
   ];
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -357,8 +357,12 @@ function Characters({ project, updateProject }) {
             className={`${cx.card} cursor-pointer transition-colors ${editId === c.id ? "border-amber-600" : "hover:border-gray-600"}`}
             onClick={() => setEditId(editId === c.id ? null : c.id)}>
             <div className="flex justify-between items-start mb-1">
-              <div>
-                <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
+              <div className="flex-1 min-w-0">
+                {c.name_d ? (
+                  <img src={c.name_d} alt="名前（手書き）" className="max-h-10 object-contain bg-transparent mb-0.5" />
+                ) : (
+                  <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
+                )}
                 <div className="text-xs text-gray-500">{c.age && `${c.age}歳 `}{c.role}</div>
               </div>
               <button className={`${cx.btn} ${cx.danger} text-xs px-1 py-0`}
