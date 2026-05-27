@@ -322,7 +322,7 @@ function TenchiJin({ project, updateProject }) {
 // ═══════════════════════════════════════════════════════════
 // インク領域のみを切り出すヘルパー（保存時に呼ぶ）
 // ═══════════════════════════════════════════════════════════
-function cropToInk(dataUrl, bgHex) {
+function cropToInk(dataUrl, bgHex, achromaticOnly = false) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
@@ -343,10 +343,15 @@ function cropToInk(dataUrl, bgHex) {
       for (let y=0; y<H; y++) {
         for (let x=0; x<W; x++) {
           const i=(y*W+x)*4;
-          if (Math.abs(data[i]-bgR)+Math.abs(data[i+1]-bgG)+Math.abs(data[i+2]-bgB) > 50) {
-            if (x<x0) x0=x; if (x>x1) x1=x;
-            if (y<y0) y0=y; if (y>y1) y1=y;
+          const r=data[i], g=data[i+1], b=data[i+2];
+          if (Math.abs(r-bgR)+Math.abs(g-bgG)+Math.abs(b-bgB) <= 50) continue;
+          if (achromaticOnly) {
+            // 彩度が高い色（赤・青・緑など）はバウンディングボックス計算から除外
+            const max=Math.max(r,g,b), min=Math.min(r,g,b);
+            if (max > 50 && (max-min)/max > 0.3) continue;
           }
+          if (x<x0) x0=x; if (x>x1) x1=x;
+          if (y<y0) y0=y; if (y>y1) y1=y;
         }
       }
       if (x1<0) { resolve(dataUrl); return; }
@@ -374,7 +379,7 @@ function CroppedNameImage({ src, alt, className }) {
 
   useEffect(() => {
     if (!src) { setDisplaySrc(null); return; }
-    cropToInk(src, bgHex).then(setDisplaySrc);
+    cropToInk(src, bgHex, true).then(setDisplaySrc);
   }, [src, bgHex]);
 
   if (!displaySrc) return <div className={className} />;
@@ -485,7 +490,7 @@ function Characters({ project, updateProject }) {
                 onTextChange={v => setC(editing.id, k, v)}
                 drawDataUrl={editing[dk] || null}
                 onDrawSave={dk === "name_d"
-                  ? dataUrl => cropToInk(dataUrl, bgHex).then(cropped => setC(editing.id, dk, cropped))
+                  ? dataUrl => cropToInk(dataUrl, bgHex, true).then(cropped => setC(editing.id, dk, cropped))
                   : dataUrl => setC(editing.id, dk, dataUrl)}
                 onDrawClear={() => setC(editing.id, dk, null)}
               />
