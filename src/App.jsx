@@ -320,9 +320,78 @@ function TenchiJin({ project, updateProject }) {
   );
 }
 // ═══════════════════════════════════════════════════════════
+// インク領域のみを切り出すヘルパー（保存時に呼ぶ）
+// ═══════════════════════════════════════════════════════════
+function cropToInk(dataUrl, bgHex, achromaticOnly = false) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.naturalWidth || img.width;
+      const H = img.naturalHeight || img.height;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      let imageData;
+      try { imageData = ctx.getImageData(0, 0, W, H); }
+      catch { resolve(dataUrl); return; }
+      const { data } = imageData;
+      const bgR = parseInt(bgHex.slice(1,3),16);
+      const bgG = parseInt(bgHex.slice(3,5),16);
+      const bgB = parseInt(bgHex.slice(5,7),16);
+      let x0=W, x1=-1, y0=H, y1=-1;
+      for (let y=0; y<H; y++) {
+        for (let x=0; x<W; x++) {
+          const i=(y*W+x)*4;
+          const r=data[i], g=data[i+1], b=data[i+2];
+          if (Math.abs(r-bgR)+Math.abs(g-bgG)+Math.abs(b-bgB) <= 50) continue;
+          if (achromaticOnly) {
+            // 彩度が高い色（赤・青・緑など）はバウンディングボックス計算から除外
+            const max=Math.max(r,g,b), min=Math.min(r,g,b);
+            if (max > 50 && (max-min)/max > 0.3) continue;
+          }
+          if (x<x0) x0=x; if (x>x1) x1=x;
+          if (y<y0) y0=y; if (y>y1) y1=y;
+        }
+      }
+      if (x1<0) { resolve(dataUrl); return; }
+      const pad = Math.max(12, Math.floor(Math.min(W,H)*0.03));
+      const cx0=Math.max(0,x0-pad), cy0=Math.max(0,y0-pad);
+      const cx1=Math.min(W-1,x1+pad), cy1=Math.min(H-1,y1+pad);
+      const cW=cx1-cx0+1, cH=cy1-cy0+1;
+      const out=document.createElement("canvas");
+      out.width=cW; out.height=cH;
+      const octx=out.getContext("2d");
+      octx.fillStyle=bgHex;
+      octx.fillRect(0,0,cW,cH);
+      octx.drawImage(canvas, cx0, cy0, cW, cH, 0, 0, cW, cH);
+      resolve(out.toDataURL("image/jpeg",0.92));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function CroppedNameImage({ src, alt, className }) {
+  const isDark  = useContext(ThemeCtx);
+  const bgHex   = isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+  const [displaySrc, setDisplaySrc] = useState(null);
+
+  useEffect(() => {
+    if (!src) { setDisplaySrc(null); return; }
+    cropToInk(src, bgHex).then(setDisplaySrc);
+  }, [src, bgHex]);
+
+  if (!displaySrc) return <div className={className} />;
+  return <img src={displaySrc} alt={alt} className={className} />;
+}
+
+// ═══════════════════════════════════════════════════════════
 // 登場人物
 // ═══════════════════════════════════════════════════════════
 function Characters({ project, updateProject }) {
+  const isDark = useContext(ThemeCtx);
+  const bgHex  = isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
   const [editId,    setEditId]    = useState(null);
   const [charDrawId, setCharDrawId] = useState(null);
 
@@ -359,7 +428,7 @@ function Characters({ project, updateProject }) {
             <div className="flex justify-between items-start mb-1">
               <div className="flex-1 min-w-0">
                 {c.name_d ? (
-                  <img src={c.name_d} alt="名前（手書き）" className="max-h-10 object-contain bg-transparent mb-0.5" />
+                  <CroppedNameImage src={c.name_d} alt="名前（手書き）" className="w-full h-auto mb-0.5" />
                 ) : (
                   <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
                 )}
@@ -420,7 +489,9 @@ function Characters({ project, updateProject }) {
                 textValue={editing[k] || ""}
                 onTextChange={v => setC(editing.id, k, v)}
                 drawDataUrl={editing[dk] || null}
-                onDrawSave={dataUrl => setC(editing.id, dk, dataUrl)}
+                onDrawSave={dk === "name_d"
+                  ? dataUrl => cropToInk(dataUrl, bgHex).then(cropped => setC(editing.id, dk, cropped))
+                  : dataUrl => setC(editing.id, dk, dataUrl)}
                 onDrawClear={() => setC(editing.id, dk, null)}
               />
             ))}
