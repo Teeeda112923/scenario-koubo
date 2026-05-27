@@ -62,7 +62,8 @@ const createCharacter = () => ({
   name_d: null, age_d: null, appearance_d: null, personality_d: null,
   motivation_d: null, secret_d: null, relation_d: null, arcStart_d: null, arcEnd_d: null,
 });
-const createScene    = () => ({ id: genId(), location: "", time: "昼", characters: "", content: "", purpose: "", type: "daily", emotion: 0, drawingDataUrl: null });
+const ROLES = ["主要", "サブ", "敵対", "メンター", "脇役"];
+const createScene    = () => ({ id: genId(), location: "", time: "昼", characters: [], content: "", purpose: "", type: "daily", emotion: 0, drawingDataUrl: null });
 const createSketch   = (title = "") => ({ id: genId(), title, drawingDataUrl: null, createdAt: new Date().toISOString() });
 const createEpisode = (n = 1) => ({ id: genId(), name: `エピソード${n}`, scenes: [] });
 
@@ -410,7 +411,6 @@ function Characters({ project, updateProject }) {
   }));
 
   const editing = project.characters.find(c => c.id === editId);
-  const ROLES = ["主要", "サブ", "敵対", "メンター", "脇役"];
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -753,7 +753,11 @@ function Hakogaki({ project, updateProject }) {
             <div>
               <label className={cx.lbl}>場所</label>
               <input className={cx.input} value={editSc.location} placeholder="例: 主人公の部屋"
+                list="scene-location-list"
                 onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "location", e.target.value)} />
+              <datalist id="scene-location-list">
+                {hk.acts.filter(a => a.name).map(a => <option key={a.id} value={a.name} />)}
+              </datalist>
             </div>
             <div>
               <label className={cx.lbl}>時間帯</label>
@@ -769,10 +773,31 @@ function Hakogaki({ project, updateProject }) {
                 {Object.entries(SCENE_TYPE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </div>
-            <div>
+            <div />
+            <div className="col-span-2">
               <label className={cx.lbl}>登場人物</label>
-              <input className={cx.input} value={editSc.characters} placeholder="例: 主人公、田中"
-                onChange={e => setSceneField(editing.actId, editing.epId, editSc.id, "characters", e.target.value)} />
+              {project.characters.length === 0 ? (
+                <p className="text-xs text-gray-600 mt-1">登場人物タブでキャラクターを追加してください</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {[...project.characters]
+                    .sort((a,b) => ROLES.indexOf(a.role) - ROLES.indexOf(b.role))
+                    .map(c => {
+                      const ids = Array.isArray(editSc.characters) ? editSc.characters : [];
+                      const sel = ids.includes(c.id);
+                      return (
+                        <button key={c.id} type="button"
+                          className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors cursor-pointer ${sel ? "bg-amber-600 border-amber-500 text-black font-medium" : "bg-transparent border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-300"}`}
+                          onClick={() => {
+                            const next = sel ? ids.filter(x => x !== c.id) : [...ids, c.id];
+                            setSceneField(editing.actId, editing.epId, editSc.id, "characters", next);
+                          }}>
+                          {c.name || c.role}
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
             </div>
             <div className="col-span-2">
               <DrawSection
