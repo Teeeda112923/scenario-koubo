@@ -320,58 +320,63 @@ function TenchiJin({ project, updateProject }) {
   );
 }
 // ═══════════════════════════════════════════════════════════
-// 手書き画像をトリミングして表示するコンポーネント
+// インク領域のみを切り出すヘルパー（保存時に呼ぶ）
 // ═══════════════════════════════════════════════════════════
-function CroppedNameImage({ src, alt, className }) {
-  const isDark = useContext(ThemeCtx);
-  const bgHex  = isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
-  const [croppedSrc, setCroppedSrc] = useState(src);
-
-  useEffect(() => {
-    if (!src) return;
+function cropToInk(dataUrl, bgHex) {
+  return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = img.width; c.height = img.height;
-      const ctx = c.getContext("2d");
+      const W = img.naturalWidth || img.width;
+      const H = img.naturalHeight || img.height;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0);
-      const { data } = ctx.getImageData(0, 0, c.width, c.height);
+      let imageData;
+      try { imageData = ctx.getImageData(0, 0, W, H); }
+      catch { resolve(dataUrl); return; }
+      const { data } = imageData;
       const bgR = parseInt(bgHex.slice(1,3),16);
       const bgG = parseInt(bgHex.slice(3,5),16);
       const bgB = parseInt(bgHex.slice(5,7),16);
-      let x0=c.width, x1=0, y0=c.height, y1=0;
-      for (let y=0; y<c.height; y++) {
-        for (let x=0; x<c.width; x++) {
-          const i=(y*c.width+x)*4;
-          if (Math.abs(data[i]-bgR)+Math.abs(data[i+1]-bgG)+Math.abs(data[i+2]-bgB) > 40) {
+      let x0=W, x1=-1, y0=H, y1=-1;
+      for (let y=0; y<H; y++) {
+        for (let x=0; x<W; x++) {
+          const i=(y*W+x)*4;
+          if (Math.abs(data[i]-bgR)+Math.abs(data[i+1]-bgG)+Math.abs(data[i+2]-bgB) > 50) {
             if (x<x0) x0=x; if (x>x1) x1=x;
             if (y<y0) y0=y; if (y>y1) y1=y;
           }
         }
       }
-      if (x1<=x0 || y1<=y0) return;
-      const pad=10;
-      const px0=Math.max(0,x0-pad), py0=Math.max(0,y0-pad);
-      const px1=Math.min(c.width-1,x1+pad), py1=Math.min(c.height-1,y1+pad);
-      const w=px1-px0+1, h=py1-py0+1;
+      if (x1<0) { resolve(dataUrl); return; }
+      const pad = Math.max(12, Math.floor(Math.min(W,H)*0.03));
+      const cx0=Math.max(0,x0-pad), cy0=Math.max(0,y0-pad);
+      const cx1=Math.min(W-1,x1+pad), cy1=Math.min(H-1,y1+pad);
+      const cW=cx1-cx0+1, cH=cy1-cy0+1;
       const out=document.createElement("canvas");
-      out.width=w; out.height=h;
+      out.width=cW; out.height=cH;
       const octx=out.getContext("2d");
       octx.fillStyle=bgHex;
-      octx.fillRect(0,0,w,h);
-      octx.drawImage(c, px0, py0, w, h, 0, 0, w, h);
-      setCroppedSrc(out.toDataURL("image/jpeg",0.9));
+      octx.fillRect(0,0,cW,cH);
+      octx.drawImage(canvas, cx0, cy0, cW, cH, 0, 0, cW, cH);
+      resolve(out.toDataURL("image/jpeg",0.92));
     };
-    img.src = src;
-  }, [src, bgHex]);
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
 
-  return <img src={croppedSrc} alt={alt} className={className} />;
+function CroppedNameImage({ src, alt, className }) {
+  return <img src={src} alt={alt} className={className} />;
 }
 
 // ═══════════════════════════════════════════════════════════
 // 登場人物
 // ═══════════════════════════════════════════════════════════
 function Characters({ project, updateProject }) {
+  const isDark = useContext(ThemeCtx);
+  const bgHex  = isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
   const [editId,    setEditId]    = useState(null);
   const [charDrawId, setCharDrawId] = useState(null);
 
@@ -469,7 +474,9 @@ function Characters({ project, updateProject }) {
                 textValue={editing[k] || ""}
                 onTextChange={v => setC(editing.id, k, v)}
                 drawDataUrl={editing[dk] || null}
-                onDrawSave={dataUrl => setC(editing.id, dk, dataUrl)}
+                onDrawSave={dk === "name_d"
+                  ? dataUrl => cropToInk(dataUrl, bgHex).then(cropped => setC(editing.id, dk, cropped))
+                  : dataUrl => setC(editing.id, dk, dataUrl)}
                 onDrawClear={() => setC(editing.id, dk, null)}
               />
             ))}
