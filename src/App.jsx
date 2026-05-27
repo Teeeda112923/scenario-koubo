@@ -503,17 +503,17 @@ function Characters({ project, updateProject }) {
                     onClick={async () => {
                       setOcrLoading(true);
                       try {
-                        const { createWorker } = await import("tesseract.js");
-                        const worker = await createWorker("jpn");
-                        const { data: { text } } = await worker.recognize(editing[dk]);
-                        await worker.terminate();
-                        const clean = text.trim().replace(/\s+/g, "");
+                        const { data, error } = await supabase.functions.invoke("ocr", {
+                          body: { image: editing[dk] },
+                        });
+                        if (error) throw error;
+                        const clean = (data?.text || "").replace(/\s+/g, "");
                         if (clean) setC(editing.id, k, clean);
                         else alert("文字を認識できませんでした");
-                      } catch { alert("認識に失敗しました"); }
+                      } catch { alert("認識に失敗しました。APIキーの設定を確認してください。"); }
                       finally { setOcrLoading(false); }
                     }}>
-                    {ocrLoading ? "🔄 認識中（初回は30秒ほどかかります）..." : "🔤 手書きをテキストに変換"}
+                    {ocrLoading ? "🔄 認識中..." : "🔤 手書きをテキストに変換"}
                   </button>
                 )}
               </React.Fragment>
