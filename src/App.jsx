@@ -428,10 +428,12 @@ function Characters({ project, updateProject }) {
             onClick={() => setEditId(editId === c.id ? null : c.id)}>
             <div className="flex justify-between items-start mb-1">
               <div className="flex-1 min-w-0">
-                {c.name_d ? (
+                {c.name ? (
+                  <div className="font-semibold text-white text-sm">{c.name}</div>
+                ) : c.name_d ? (
                   <CroppedNameImage src={c.name_d} alt="名前（手書き）" className="w-full h-auto mb-0.5" />
                 ) : (
-                  <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
+                  <div className="font-semibold text-white text-sm">名前未設定</div>
                 )}
                 <div className="text-xs text-gray-500">{c.age && `${c.age}歳 `}{c.role}</div>
               </div>
