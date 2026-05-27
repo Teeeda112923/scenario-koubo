@@ -368,7 +368,17 @@ function cropToInk(dataUrl, bgHex) {
 }
 
 function CroppedNameImage({ src, alt, className }) {
-  return <img src={src} alt={alt} className={className} />;
+  const isDark  = useContext(ThemeCtx);
+  const bgHex   = isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+  const [displaySrc, setDisplaySrc] = useState(null);
+
+  useEffect(() => {
+    if (!src) { setDisplaySrc(null); return; }
+    cropToInk(src, bgHex).then(setDisplaySrc);
+  }, [src, bgHex]);
+
+  if (!displaySrc) return <div className={className} />;
+  return <img src={displaySrc} alt={alt} className={className} />;
 }
 
 // ═══════════════════════════════════════════════════════════
