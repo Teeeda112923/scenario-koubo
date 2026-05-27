@@ -421,7 +421,7 @@ function Characters({ project, updateProject }) {
 
       {/* カード一覧 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
-        {project.characters.map(c => (
+        {[...project.characters].sort((a,b) => ROLES.indexOf(a.role) - ROLES.indexOf(b.role)).map(c => (
           <div key={c.id}
             className={`${cx.card} cursor-pointer transition-colors ${editId === c.id ? "border-amber-600" : "hover:border-gray-600"}`}
             onClick={() => setEditId(editId === c.id ? null : c.id)}>
