@@ -379,7 +379,7 @@ function CroppedNameImage({ src, alt, className }) {
 
   useEffect(() => {
     if (!src) { setDisplaySrc(null); return; }
-    cropToInk(src, bgHex, true).then(setDisplaySrc);
+    cropToInk(src, bgHex).then(setDisplaySrc);
   }, [src, bgHex]);
 
   if (!displaySrc) return <div className={className} />;
@@ -490,7 +490,7 @@ function Characters({ project, updateProject }) {
                 onTextChange={v => setC(editing.id, k, v)}
                 drawDataUrl={editing[dk] || null}
                 onDrawSave={dk === "name_d"
-                  ? dataUrl => cropToInk(dataUrl, bgHex, true).then(cropped => setC(editing.id, dk, cropped))
+                  ? dataUrl => cropToInk(dataUrl, bgHex).then(cropped => setC(editing.id, dk, cropped))
                   : dataUrl => setC(editing.id, dk, dataUrl)}
                 onDrawClear={() => setC(editing.id, dk, null)}
               />
