@@ -343,7 +343,7 @@ function CroppedNameImage({ src, alt, className }) {
       for (let y=0; y<c.height; y++) {
         for (let x=0; x<c.width; x++) {
           const i=(y*c.width+x)*4;
-          if (Math.abs(data[i]-bgR)+Math.abs(data[i+1]-bgG)+Math.abs(data[i+2]-bgB) > 25) {
+          if (Math.abs(data[i]-bgR)+Math.abs(data[i+1]-bgG)+Math.abs(data[i+2]-bgB) > 40) {
             if (x<x0) x0=x; if (x>x1) x1=x;
             if (y<y0) y0=y; if (y>y1) y1=y;
           }
@@ -408,7 +408,7 @@ function Characters({ project, updateProject }) {
             <div className="flex justify-between items-start mb-1">
               <div className="flex-1 min-w-0">
                 {c.name_d ? (
-                  <CroppedNameImage src={c.name_d} alt="名前（手書き）" className="max-h-16 w-full object-contain mb-0.5" />
+                  <CroppedNameImage src={c.name_d} alt="名前（手書き）" className="w-full h-auto mb-0.5" />
                 ) : (
                   <div className="font-semibold text-white text-sm">{c.name || "名前未設定"}</div>
                 )}
