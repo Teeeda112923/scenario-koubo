@@ -495,10 +495,14 @@ function Characters({ project, updateProject }) {
                     : dataUrl => setC(editing.id, dk, dataUrl)}
                   onDrawClear={() => setC(editing.id, dk, null)}
                 />
-                {k === "name" && editing[dk] && ("TextDetector" in window) && (
+                {k === "name" && editing[dk] && (
                   <button
                     className={`${cx.btn} ${cx.ghost} text-xs w-full`}
                     onClick={async () => {
+                      if (!("TextDetector" in window)) {
+                        alert("このブラウザはテキスト認識に対応していません");
+                        return;
+                      }
                       try {
                         const detector = new window.TextDetector();
                         const img = new Image();
