@@ -129,8 +129,15 @@ function HomeScreen({ data, setData, onOpen, syncState, syncMsg, isOnline, onMan
     reader.onload = ev => {
       try {
         const imp = JSON.parse(ev.target.result);
-        if (imp.projects) setData(imp);
-        else alert("形式が正しくありません");
+        if (imp.projects) {
+          setData(prev => ({
+            ...prev,
+            projects: [
+              ...prev.projects,
+              ...imp.projects.map(p => ({ ...p, id: crypto.randomUUID() })),
+            ],
+          }));
+        } else alert("形式が正しくありません");
       } catch { alert("読み込みに失敗しました"); }
     };
     reader.readAsText(file);
