@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 
 // ─── テーマContext ────────────────────────────────────────
 const ThemeCtx = createContext(true); // true = dark
+const DefaultModeCtx = createContext("draw"); // "draw" | "text"
 const THEME_STORE = "scenario_koubo_theme";
 
 // ペンカラー（ナイト / デイ）
@@ -37,6 +38,7 @@ const save = (d) => localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
 // ─── 初期データファクトリ ─────────────────────────────────
 const createProject = (title = "新しい作品") => ({
   id: genId(), title, genre: "", status: "企画中",
+  defaultInputMode: "draw",
   createdAt: new Date().toISOString(),
   overview: { theme: "", antiTheme: "", remarks: "" },
   tenchiJin: { ten: "", chi: "", jin: "" },
@@ -244,6 +246,12 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
           value={project.status} onChange={e => updateProject(p => ({ ...p, status: e.target.value }))}>
           {Object.keys(STATUS_COLOR).map(s => <option key={s}>{s}</option>)}
         </select>
+        <button
+          title="入力デフォルトモードを切り替え"
+          className={`${cx.btn} ${cx.ghost} text-xs px-2 py-1 hidden sm:block`}
+          onClick={() => updateProject(p => ({ ...p, defaultInputMode: (p.defaultInputMode || "draw") === "draw" ? "text" : "draw" }))}>
+          {(project.defaultInputMode || "draw") === "draw" ? "✏" : "⌨"}
+        </button>
         <button title={isDark ? "デイモードに切り替え" : "ナイトモードに切り替え"}
           className={`${cx.btn} ${cx.ghost} text-base px-2 py-1`}
           onClick={onToggleTheme}>{isDark ? "☀" : "🌙"}</button>
@@ -258,16 +266,18 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
         ))}
       </div>
       {/* コンテンツ */}
-      <div className="p-4 overflow-y-auto" style={{ height: "calc(100vh - 108px)" }}>
-        {activeTab === "overview"     && <Overview     project={project} updateProject={updateProject} />}
-        {activeTab === "tenchiJin"    && <TenchiJin    project={project} updateProject={updateProject} />}
-        {activeTab === "characters"   && <Characters   project={project} updateProject={updateProject} />}
-        {activeTab === "structure"    && <Structure    project={project} updateProject={updateProject} />}
-        {activeTab === "hakogaki"     && <Hakogaki     project={project} updateProject={updateProject} />}
-        {activeTab === "emotionCurve" && <EmotionCurve project={project} updateProject={updateProject} />}
-        {activeTab === "notes"        && <Notes        project={project} updateProject={updateProject} />}
-        {activeTab === "sketches"      && <Sketches     project={project} updateProject={updateProject} />}
-      </div>
+      <DefaultModeCtx.Provider value={project.defaultInputMode || "draw"}>
+        <div className="p-4 overflow-y-auto" style={{ height: "calc(100vh - 108px)" }}>
+          {activeTab === "overview"     && <Overview     project={project} updateProject={updateProject} />}
+          {activeTab === "tenchiJin"    && <TenchiJin    project={project} updateProject={updateProject} />}
+          {activeTab === "characters"   && <Characters   project={project} updateProject={updateProject} />}
+          {activeTab === "structure"    && <Structure    project={project} updateProject={updateProject} />}
+          {activeTab === "hakogaki"     && <Hakogaki     project={project} updateProject={updateProject} />}
+          {activeTab === "emotionCurve" && <EmotionCurve project={project} updateProject={updateProject} />}
+          {activeTab === "notes"        && <Notes        project={project} updateProject={updateProject} />}
+          {activeTab === "sketches"      && <Sketches     project={project} updateProject={updateProject} />}
+        </div>
+      </DefaultModeCtx.Provider>
     </div>
   );
 }
@@ -926,7 +936,8 @@ function ModeToggle({ mode, onChange }) {
 
 // 手書き+テキスト 統合セクションカード
 function DrawSection({ cardClass="", icon, label, hint, textValue, onTextChange, placeholder, rows=4, drawDataUrl, onDrawSave, onDrawClear }) {
-  const [mode, setMode] = useState("draw");
+  const defaultMode = useContext(DefaultModeCtx);
+  const [mode, setMode] = useState(defaultMode);
   const [showModal, setShowModal] = useState(false);
 
   return (
