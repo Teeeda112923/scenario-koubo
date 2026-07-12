@@ -231,8 +231,39 @@ const TABS = (useEmotionCurve) => [
 ];
 
 function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack, syncState, syncMsg, isOnline, onManualFetch, user, onSignOut, isDark, onToggleTheme }) {
+  const [showSettings, setShowSettings] = useState(false);
+  const defMode = project.defaultInputMode || "draw";
+
   return (
     <div className={cx.page}>
+      {/* 設定パネル */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowSettings(false)} />
+          <div className="relative bg-gray-900 border-l border-gray-700 w-72 h-full flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
+              <span className="font-bold text-white text-sm">⚙ プロジェクト設定</span>
+              <button className={`${cx.btn} ${cx.ghost} text-xs px-2 py-1`} onClick={() => setShowSettings(false)}>✕ 閉じる</button>
+            </div>
+            <div className="p-5 space-y-6 overflow-y-auto flex-1">
+              {/* デフォルト入力モード */}
+              <div>
+                <p className="text-xs font-semibold text-amber-400 mb-1">デフォルト入力モード</p>
+                <p className="text-xs text-gray-500 mb-3">このシナリオで新しいフィールドを開いたときの初期モードを設定します。</p>
+                <div className="flex gap-2">
+                  {[["draw", "✏ 手書き"], ["text", "⌨ テキスト"]].map(([m, label]) => (
+                    <button key={m}
+                      className={`flex-1 py-2 rounded text-sm font-medium transition-colors cursor-pointer ${defMode === m ? "bg-amber-600 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}
+                      onClick={() => updateProject(p => ({ ...p, defaultInputMode: m }))}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ヘッダー */}
       <div className="border-b border-gray-800 px-4 py-3 flex items-center gap-3">
         <button className={`${cx.btn} ${cx.ghost} text-xs`} onClick={onBack}>← 一覧</button>
@@ -246,12 +277,9 @@ function ProjectScreen({ project, updateProject, activeTab, setActiveTab, onBack
           value={project.status} onChange={e => updateProject(p => ({ ...p, status: e.target.value }))}>
           {Object.keys(STATUS_COLOR).map(s => <option key={s}>{s}</option>)}
         </select>
-        <button
-          title="入力デフォルトモードを切り替え"
-          className={`${cx.btn} ${cx.ghost} text-xs px-2 py-1 hidden sm:block`}
-          onClick={() => updateProject(p => ({ ...p, defaultInputMode: (p.defaultInputMode || "draw") === "draw" ? "text" : "draw" }))}>
-          {(project.defaultInputMode || "draw") === "draw" ? "✏" : "⌨"}
-        </button>
+        <button title="プロジェクト設定"
+          className={`${cx.btn} ${cx.ghost} text-sm px-2 py-1`}
+          onClick={() => setShowSettings(true)}>⚙</button>
         <button title={isDark ? "デイモードに切り替え" : "ナイトモードに切り替え"}
           className={`${cx.btn} ${cx.ghost} text-base px-2 py-1`}
           onClick={onToggleTheme}>{isDark ? "☀" : "🌙"}</button>
