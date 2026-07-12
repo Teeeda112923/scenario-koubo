@@ -58,10 +58,11 @@ const createProject = (title = "新しい作品") => ({
 });
 const createCharacter = () => ({
   id: genId(), name: "", age: "", role: "主要",
-  appearance: "", personality: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "",
+  appearance: "", personality: "", kyoguu: "", occupation: "", ningenKansei: "", motivation: "", secret: "", relation: "", arcStart: "", arcEnd: "",
   drawingDataUrl: null,
   // 各フィールドの手書きデータ
   name_d: null, age_d: null, appearance_d: null, personality_d: null,
+  kyoguu_d: null, occupation_d: null, ningenKansei_d: null,
   motivation_d: null, secret_d: null, relation_d: null, arcStart_d: null, arcEnd_d: null,
 });
 const ROLES = ["主要", "サブ", "敵対", "メンター", "脇役"];
@@ -525,8 +526,11 @@ function Characters({ project, updateProject }) {
               { k: "name",        dk: "name_d",        lbl: "名前",                    rows: 2 },
               { k: "age",         dk: "age_d",         lbl: "年齢",                    rows: 2 },
               { k: "appearance",  dk: "appearance_d",  lbl: "外見・印象",              rows: 3 },
-              { k: "personality", dk: "personality_d", lbl: "性格",                    rows: 3 },
-              { k: "motivation",  dk: "motivation_d",  lbl: "動機（何が欲しいか）",    rows: 3 },
+              { k: "personality",   dk: "personality_d",   lbl: "性格",                    rows: 3 },
+              { k: "kyoguu",       dk: "kyoguu_d",       lbl: "境遇",                    rows: 3 },
+              { k: "occupation",   dk: "occupation_d",   lbl: "職業および地位",          rows: 2 },
+              { k: "ningenKansei", dk: "ningenKansei_d", lbl: "人間完成",                rows: 3 },
+              { k: "motivation",   dk: "motivation_d",   lbl: "動機（何が欲しいか）",    rows: 3 },
               { k: "secret",      dk: "secret_d",      lbl: "秘密・隠された面",        rows: 3 },
               { k: "relation",    dk: "relation_d",    lbl: "主人公との関係",           rows: 2 },
               { k: "arcStart",    dk: "arcStart_d",    lbl: "物語開始の状態（弧 起）", rows: 2 },
